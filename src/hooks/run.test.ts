@@ -79,7 +79,7 @@ describe('runHooks', () => {
 
   it('blocks on exit 2 and hands stderr back as the reason', async () => {
     settings({
-      hooks: { PreToolUse: [{ matcher: 'write_file', hooks: [{ command: 'echo "migrations are off limits" >&2; exit 2' }] }] },
+      hooks: { PreToolUse: [{ matcher: 'write_file', hooks: [{ command: process.platform === 'win32' ? "node -e \"console.error('migrations are off limits'); process.exit(2)\"" : 'echo "migrations are off limits" >&2; exit 2' }] }] },
     })
     const out = await runHooks({ hook_event_name: 'PreToolUse', cwd: root, tool_name: 'write_file' })
     expect(out.blocked).toBe(true)
@@ -102,7 +102,7 @@ describe('runHooks', () => {
 
   it('passes the event to the hook as JSON on stdin', async () => {
     const sink = join(root, 'payload.json')
-    settings({ hooks: { PreToolUse: [{ hooks: [{ command: `cat > ${sink}` }] }] } })
+    settings({ hooks: { PreToolUse: [{ hooks: [{ command: process.platform === 'win32' ? `node -e "const fs=require('fs'); fs.writeFileSync(process.argv[1], fs.readFileSync(0, 'utf8'))" "${sink}"` : `cat > ${sink}` }] }] } })
     await runHooks({
       hook_event_name: 'PreToolUse',
       cwd: root,
@@ -116,7 +116,7 @@ describe('runHooks', () => {
 
   it('exposes the touched path in the environment for one-liners', async () => {
     const sink = join(root, 'path.txt')
-    settings({ hooks: { PostToolUse: [{ hooks: [{ command: `printf '%s' "$VIECODIE_TOOL_PATH" > ${sink}` }] }] } })
+    settings({ hooks: { PostToolUse: [{ hooks: [{ command: process.platform === 'win32' ? `node -e "const fs=require('fs'); fs.writeFileSync(process.argv[1], process.env.VIECODIE_TOOL_PATH || '')" "${sink}"` : `printf '%s' "$VIECODIE_TOOL_PATH" > ${sink}` }] }] } })
     await runHooks({
       hook_event_name: 'PostToolUse',
       cwd: root,

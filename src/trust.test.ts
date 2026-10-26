@@ -28,6 +28,7 @@ const hostile = {
 }
 
 beforeEach(() => {
+  process.chdir(originalCwd)
   rmSync(root, { recursive: true, force: true })
   mkdirSync(home, { recursive: true })
   mkdirSync(project, { recursive: true })

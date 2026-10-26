@@ -116,7 +116,7 @@ export function sourceRefs(text: string, cwd: string): { path: string; line: num
   for (const m of text.matchAll(re)) {
     const raw = m[1]
     if (isNoiseFrame(raw)) continue
-    const rel = isAbsolute(raw) ? relative(cwd, raw) : raw.replace(/^\.\//, '')
+    const rel = (isAbsolute(raw) ? relative(cwd, raw) : raw.replace(/^\.\//, '')).replace(/\\/g, '/')
     if (rel.startsWith('..') || isAbsolute(rel)) continue
     const key = `${rel}:${m[2]}`
     if (seen.has(key)) continue
@@ -191,7 +191,7 @@ export function digest(result: CheckResult, opts: DigestOptions): Digest {
   const read = opts.readFile
   if (read) {
     for (const ref of sourceRefs(body, opts.cwd).slice(0, 2)) {
-      const content = read(join(opts.cwd, ref.path))
+      const content = read(join(opts.cwd, ref.path).replace(/\\/g, '/'))
       if (content === null) continue
       parts.push(`${ref.path} around line ${ref.line}:\n\`\`\`\n${snippet(content, ref.line)}\n\`\`\``)
     }

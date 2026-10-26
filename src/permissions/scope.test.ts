@@ -18,8 +18,10 @@ const other = join(root, 'other')
 for (const d of [home, project, other]) mkdirSync(d, { recursive: true })
 
 const originalHome = process.env.HOME
+const originalUserProfile = process.env.USERPROFILE
 const originalCwd = process.cwd()
 process.env.HOME = home
+process.env.USERPROFILE = home
 process.chdir(project)
 
 const { loadRules, loadScopedRules, addRules, check } = await import('./policy.js')
@@ -29,6 +31,8 @@ afterAll(() => {
   process.chdir(originalCwd)
   if (originalHome === undefined) delete process.env.HOME
   else process.env.HOME = originalHome
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE
+  else process.env.USERPROFILE = originalUserProfile
   rmSync(root, { recursive: true, force: true })
 })
 

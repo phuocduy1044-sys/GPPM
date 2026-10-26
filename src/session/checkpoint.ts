@@ -82,7 +82,7 @@ export function checkpointsEnabled(cwd = process.cwd()): boolean {
  */
 export function snapshotFile(absPath: string, cwd = process.cwd()): void {
   if (!currentSession || !checkpointsEnabled(cwd)) return
-  const rel = relative(cwd, absPath)
+  const rel = relative(cwd, absPath).replace(/\\/g, '/')
   // Outside the project (the spill dir, mostly) — not ours to restore.
   if (rel.startsWith('..')) return
 

@@ -38,7 +38,7 @@ export class RoundSnapshot {
 
   private rel(p: string): string | null {
     const abs = isAbsolute(p) ? p : resolve(this.cwd, p)
-    const rel = relative(this.cwd, abs)
+    const rel = relative(this.cwd, abs).replace(/\\/g, '/')
     if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null
     return rel
   }

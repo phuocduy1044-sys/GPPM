@@ -34,7 +34,7 @@
  * consults the rules, `acceptEdits` stops asking about file writes, and `bypass`
  * stops asking about anything.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, rmSync } from 'fs'
 import { join, resolve, relative, isAbsolute } from 'path'
 import { homedir } from 'os'
 import { settingsAllowRules, settingsDenyRules } from '../settings.js'
@@ -110,7 +110,7 @@ const USER_RULES_DIR = join(homedir(), '.viecodie')
  * directory the process happened to start in.
  */
 function rulesDir(scope: RuleScope): string {
-  return scope === 'user' ? USER_RULES_DIR : join(process.cwd(), '.viecodie')
+  return scope === 'user' ? join(process.env.HOME || homedir(), '.viecodie') : join(process.cwd(), '.viecodie')
 }
 
 function rulesPath(scope: RuleScope): string {
@@ -164,7 +164,16 @@ function saveRules(scope: RuleScope, rules: Rule[]): void {
   const path = rulesPath(scope)
   const tmp = path + '.tmp'
   writeFileSync(tmp, JSON.stringify({ rules }, null, 2), 'utf-8')
-  renameSync(tmp, path)
+  try {
+    renameSync(tmp, path)
+  } catch (err) {
+    if (process.platform === 'win32') {
+      try { rmSync(path, { force: true }) } catch {}
+      renameSync(tmp, path)
+    } else {
+      throw err
+    }
+  }
 }
 
 export function addRule(tool: string, pattern: string, scope: RuleScope = 'project'): void {

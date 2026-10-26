@@ -16,7 +16,7 @@
  * whether the folder is trusted or not (see settings.ts).
  */
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -25,7 +25,7 @@ export const PROJECT_CONFIG_FILES = ['settings.json', 'settings.local.json', 'pe
 
 /** Resolved per call, not at import: tests and the CLI both move HOME and cwd. */
 function storePath(): string {
-  return join(homedir(), '.viecodie', 'trusted.json')
+  return join(process.env.HOME || homedir(), '.viecodie', 'trusted.json')
 }
 
 function real(p: string): string {
@@ -71,10 +71,19 @@ function readStore(): Record<string, string> {
 
 function writeStore(projects: Record<string, string>): void {
   const path = storePath()
-  mkdirSync(join(homedir(), '.viecodie'), { recursive: true })
+  mkdirSync(join(process.env.HOME || homedir(), '.viecodie'), { recursive: true })
   const tmp = path + '.tmp'
   writeFileSync(tmp, JSON.stringify({ projects }, null, 2), 'utf-8')
-  renameSync(tmp, path)
+  try {
+    renameSync(tmp, path)
+  } catch (err) {
+    if (process.platform === 'win32') {
+      try { rmSync(path, { force: true }) } catch {}
+      renameSync(tmp, path)
+    } else {
+      throw err
+    }
+  }
 }
 
 /**

@@ -114,7 +114,7 @@ export type SettingsScope = 'user' | 'project' | 'local'
 export const SETTINGS_SCOPES: SettingsScope[] = ['user', 'project', 'local']
 
 export function settingsPath(scope: SettingsScope, cwd: string = process.cwd()): string {
-  if (scope === 'user') return join(homedir(), '.viecodie', 'settings.json')
+  if (scope === 'user') return join(process.env.HOME || homedir(), '.viecodie', 'settings.json')
   if (scope === 'project') return join(cwd, '.viecodie', 'settings.json')
   return join(cwd, '.viecodie', 'settings.local.json')
 }

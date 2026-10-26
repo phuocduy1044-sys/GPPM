@@ -28,7 +28,7 @@ export class TurnSummaryBuilder {
     if (result.diff && !result.is_error) {
       // The path is as the model wrote it — "a.ts", "./a.ts" and an absolute
       // path are one file, and should count as one.
-      const path = relative(this.cwd, resolve(this.cwd, result.diff.path)) || result.diff.path
+      const path = (relative(this.cwd, resolve(this.cwd, result.diff.path)) || result.diff.path).replace(/\\/g, '/')
       const prev = this.files.get(path) ?? { added: 0, removed: 0 }
       this.files.set(path, {
         added: prev.added + result.diff.added,

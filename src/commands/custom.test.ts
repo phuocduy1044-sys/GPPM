@@ -10,7 +10,9 @@ const project = join(root, 'project')
 for (const d of [home, project]) mkdirSync(d, { recursive: true })
 
 const originalHome = process.env.HOME
+const originalUserProfile = process.env.USERPROFILE
 process.env.HOME = home
+process.env.USERPROFILE = home
 // Imported after HOME is redirected: the user-scope directory is resolved from
 // it, and a module loaded first would look in the real home directory.
 const { loadCustomCommands } = await import('./custom.js')
@@ -18,6 +20,8 @@ const { loadCustomCommands } = await import('./custom.js')
 afterAll(() => {
   if (originalHome === undefined) delete process.env.HOME
   else process.env.HOME = originalHome
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE
+  else process.env.USERPROFILE = originalUserProfile
   rmSync(root, { recursive: true, force: true })
 })
 

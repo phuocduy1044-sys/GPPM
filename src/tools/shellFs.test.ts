@@ -57,7 +57,7 @@ describe.each([
     writeFileShell(file, 'alpha\nbeta\n')
     expect(readFileSync(file, 'utf-8')).toBe('alpha\nbeta\n')
     expect(readTextShell(file)).toBe('alpha\nbeta\n')
-    expect(bashAvailable()).toBe(!noBash)
+    if (process.platform !== 'win32') expect(bashAvailable()).toBe(!noBash)
   })
 
   it('keeps bytes intact on binary content', async () => {
@@ -70,7 +70,8 @@ describe.each([
 
   it('handles a path the shell would otherwise mangle', async () => {
     const { writeFileShell, readTextShell } = await load(noBash)
-    const file = join(dir, 'we ird$ ;"name".txt')
+    const weirdName = process.platform === 'win32' ? "we ird$ ;'name'.txt" : 'we ird$ ;"name".txt'
+    const file = join(dir, weirdName)
     writeFileShell(file, 'ok\n')
     expect(readTextShell(file)).toBe('ok\n')
   })
