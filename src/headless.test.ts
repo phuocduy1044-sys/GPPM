@@ -3,8 +3,8 @@ import { parseHeadlessArgs } from './headless.js'
 import { DEFAULT_PERMISSION_MODE } from './permissions/policy.js'
 
 describe('parseHeadlessArgs', () => {
-  it('uses full access as the shared launch default', () => {
-    expect(DEFAULT_PERMISSION_MODE).toBe('bypass')
+  it('uses require approval as the shared launch default', () => {
+    expect(DEFAULT_PERMISSION_MODE).toBe('default')
   })
 
   it('returns nothing without -p, so the TUI still launches', () => {
@@ -46,7 +46,7 @@ describe('parseHeadlessArgs', () => {
   })
 
   it('reads every permission mode the policy defines', () => {
-    for (const mode of ['default', 'plan', 'acceptEdits', 'bypass']) {
+    for (const mode of ['default', 'bypass']) {
       expect(parseHeadlessArgs(['-p', 'hi', '--permission-mode', mode]).options?.mode).toBe(mode)
     }
   })

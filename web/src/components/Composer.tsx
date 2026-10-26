@@ -40,6 +40,7 @@ export function Composer({
   const [drag, setDrag] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const isComposingRef = useRef(false)
 
   useEffect(() => { ref.current?.focus() }, [state.sessionId])
   useEffect(() => {
@@ -76,6 +77,10 @@ export function Composer({
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Guard against IME composition events (Telex/VNI input)
+    if (isComposingRef.current || e.nativeEvent.isComposing || e.keyCode === 229 || e.key === 'Process') {
+      return
+    }
     if (matches.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => (s + 1) % matches.length); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => (s - 1 + matches.length) % matches.length); return }
@@ -88,7 +93,7 @@ export function Composer({
       setMode(order[(order.indexOf(state.mode) + 1) % order.length])
       return
     }
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit() }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
   }
 
   const canSend = !!(text.trim() || images.length)
@@ -139,6 +144,8 @@ export function Composer({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
+          onCompositionStart={() => { isComposingRef.current = true }}
+          onCompositionEnd={() => { isComposingRef.current = false }}
           onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files) } }}
           placeholder={state.busy ? 'Thêm tin nhắn — viecodie sẽ đọc ở bước tiếp theo' : 'Mô tả công việc, hoặc gõ / để mở bảng lệnh'}
           className="field-sizing-content max-h-60 min-h-6 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"

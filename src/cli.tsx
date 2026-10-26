@@ -216,6 +216,9 @@ if (cmd === 'version' || args.includes('--version') || args.includes('-v')) {
   })
   // Ink renders through a recording wrapper so a mouse drag can be turned back
   // into the text on screen (selection.ts).
+  if (process.stdin.isTTY && typeof process.stdin.setEncoding === 'function') {
+    process.stdin.setEncoding('utf8')
+  }
   const stdout = process.stdout.isTTY ? captureFrames(process.stdout) : process.stdout
   render(createElement(App, { resumeId, continueLast } satisfies AppProps), { stdout })
 }

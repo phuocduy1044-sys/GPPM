@@ -479,19 +479,24 @@ export function App({ resumeId, continueLast }: AppProps) {
     void agent.compact()
   }, [contextPct, agent.busy, state, cfg.model])
 
-  // Ink draws this frame in place at the bottom of the terminal, so a mouse
-  // report's row only means something once the frame's height is known — that's
-  // what turns a click into the tool block under it (toolHit.ts).
-  useEffect(() => {
-    if (rootRef.current) setFrameHeight(measureElement(rootRef.current).height)
-  })
-
   // Chat mode owns the whole screen: the root is pinned to the terminal height
   // (less one row, so writing the frame can't scroll it) and ChatView's viewport
   // flex-grows into whatever the input bar and pickers leave. Pre-ready screens
   // stay auto-height — they're short, and a full-height frame there would just
   // blank the terminal.
   const fullScreen = state === 'ready' || state === 'sessions' || state === 'models'
+
+  const welcomeHeader = useMemo(
+    () => <WelcomeBlock model={cfg.model} activeCtx={activeCtx} effort={effort} cwd={cwd} provider={provName} />,
+    [cfg.model, activeCtx, effort, cwd, provName],
+  )
+
+  // Ink draws this frame in place at the bottom of the terminal, so a mouse
+  // report's row only means something once the frame's height is known — that's
+  // what turns a click into the tool block under it (toolHit.ts).
+  useEffect(() => {
+    if (rootRef.current) setFrameHeight(measureElement(rootRef.current).height)
+  }, [termRows, state, fullScreen])
 
   return (
     <Box ref={rootRef} flexDirection="column" paddingX={1} height={fullScreen ? Math.max(8, termRows - 1) : undefined}>
@@ -561,7 +566,7 @@ export function App({ resumeId, continueLast }: AppProps) {
             permissionCursor={agent.permissionCursor}
             activeToolUses={agent.activeToolUses}
             activeToolResults={agent.activeToolResults}
-            header={<WelcomeBlock model={cfg.model} activeCtx={activeCtx} effort={effort} cwd={cwd} provider={provName} />}
+            header={welcomeHeader}
             logEpoch={logEpoch}
           />
 

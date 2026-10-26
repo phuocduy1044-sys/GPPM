@@ -16,6 +16,7 @@ describe('reviewGraphHandler', () => {
     // Set a report pointing to a different non-matching path
     setCurrentReport({
       schemaVersion: 1,
+      reviewId: 'test-review-id',
       revision: 'dummy',
       timestamp: new Date().toISOString(),
       projectName: 'other',

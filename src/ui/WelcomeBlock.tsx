@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Box, Text } from 'ink'
 import type { Effort } from '../config.js'
 import { WELCOME_COMMANDS, WELCOME_PROMPT, SECURITY_WARNING_TITLE, SECURITY_WARNING_NOTICE } from './constants.js'
@@ -104,7 +105,7 @@ function StatusRow({ parts }: { parts: string[] }) {
   return <Text dimColor>{parts.join('  ·  ')}</Text>
 }
 
-export function WelcomeBlock({
+export const WelcomeBlock = memo(function WelcomeBlock({
   model,
   activeCtx,
   effort,
@@ -150,7 +151,7 @@ export function WelcomeBlock({
   // No bottom margin: every transcript block below carries its own top margin.
   return (
     <Box flexDirection="column">
-      {cols >= BANNER_WIDTH + 2 ? (
+      {cols >= BANNER_WIDTH + 4 ? (
         <Box flexDirection="column" alignItems="center" marginBottom={1}>
           <Box flexDirection="column" width={BANNER_WIDTH}>
             {BANNER.map((line, i) => (
@@ -214,4 +215,4 @@ export function WelcomeBlock({
       )}
     </Box>
   )
-}
+})
