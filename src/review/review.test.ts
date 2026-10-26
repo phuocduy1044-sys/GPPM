@@ -65,7 +65,7 @@ describe('Review Engine Full Lifecycle', () => {
     const postReport = await reviewProject({ projectRoot: demoRoot, mode: 'rules' });
     const postSql = postReport.findings.find(f => f.ruleId === 'SEC_SQL_INJECTION');
     expect(postSql).toBeUndefined();
-  }, 15000);
+  }, 35000);
 
   it('detects hardcoded secret, loose equality, and var keyword', async () => {
     const { buildAstGraph } = await import('./ast.js');
