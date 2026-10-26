@@ -74,24 +74,24 @@ export interface PermissionContext {
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypass'
 
 /** Requested launch behavior: do not stop for per-tool approval prompts. */
-export const DEFAULT_PERMISSION_MODE: PermissionMode = 'bypass'
+export const DEFAULT_PERMISSION_MODE: PermissionMode = 'default'
 
 /** Cycle order for shift+tab. `default` is first so the cycle returns to it. */
-export const PERMISSION_MODES: PermissionMode[] = ['default', 'plan', 'acceptEdits', 'bypass']
+export const PERMISSION_MODES: PermissionMode[] = ['default', 'bypass']
 
 export const MODE_LABEL: Record<PermissionMode, string> = {
-  default: 'tiêu chuẩn',
+  default: 'cần phê duyệt',
+  bypass: 'toàn quyền',
   plan: 'lập kế hoạch',
   acceptEdits: 'tự động sửa tệp',
-  bypass: 'bỏ qua phê duyệt',
 }
 
 /** One-line explanation shown when the mode changes. */
 export const MODE_HINT: Record<PermissionMode, string> = {
-  default: 'hỏi trước khi sửa tệp hoặc chạy lệnh',
+  default: 'hỏi trước khi sửa tệp hoặc chạy lệnh terminal',
+  bypass: 'tự động thực thi mọi thao tác không cần hỏi',
   plan: 'chỉ đọc — nghiên cứu và đề xuất kế hoạch để bạn phê duyệt',
   acceptEdits: 'tự động lưu sửa tệp · lệnh terminal vẫn cần phê duyệt',
-  bypass: 'chạy mọi thao tác mà không cần hỏi — hãy cẩn trọng với thư mục này',
 }
 
 export function nextMode(mode: PermissionMode): PermissionMode {

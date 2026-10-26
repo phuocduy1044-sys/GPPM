@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 /**
  * useKeyboard — wires all keyboard input for the App.
  *
@@ -162,6 +163,41 @@ function stripControls(chunk: string): string {
  * and replaced by a compact chip; a small one collapses newlines to spaces and
  * goes inline. expandPastes() restores chips at submit time.
  */
+/** Apply typed input chunk, properly interpreting embedded backspaces from IME (Unikey/EVKey) and normalizing Unicode */
+export function applyTypedInput(
+  current: string,
+  pos: number,
+  chunk: string,
+): { input: string; caret: number } {
+  let text = current
+  let caret = Math.max(0, Math.min(pos, text.length))
+
+  // Check if chunk has embedded backspaces from Windows IME / Unikey (0x08, \b, 0x7f)
+  if (/[\b\x08\x7f]/.test(chunk)) {
+    for (const ch of chunk) {
+      if (ch === '\b' || ch === '\x08' || ch === '\x7f') {
+        if (caret > 0) {
+          text = text.slice(0, caret - 1) + text.slice(caret)
+          caret = Math.max(0, caret - 1)
+        }
+      } else if (ch !== '\r' && ch >= ' ') {
+        text = text.slice(0, caret) + ch + text.slice(caret)
+        caret += ch.length
+      }
+    }
+    return { input: text.normalize('NFC'), caret }
+  }
+
+  // Normal typed or pasted chunk
+  const sanitized = sanitizePaste(chunk)
+  if (!sanitized) return { input: text, caret }
+
+  const normalized = sanitized.normalize('NFC')
+  text = text.slice(0, caret) + normalized + text.slice(caret)
+  caret += normalized.length
+  return { input: text.normalize('NFC'), caret }
+}
+
 function sanitizePaste(chunk: string): string {
   // Gate the paste machinery on length>1 — typing is the hot path.
   if (chunk.length <= 1) return chunk
@@ -242,6 +278,18 @@ export function useKeyboard(opts: KeyboardOptions) {
     sessionId, setSessionId, onResumeSession, sessions, setSessions, setNotice, setLogEpoch,
     switchProvider, mcpServers, activeCtx,
   } = opts
+
+  const inputRef = useRef(input)
+  inputRef.current = input
+  const caretRef = useRef(caret)
+  caretRef.current = caret
+
+  const updateInputState = (nextInput: string, nextCaret: number) => {
+    inputRef.current = nextInput
+    caretRef.current = nextCaret
+    setInput(() => nextInput)
+    setCaret(() => nextCaret)
+  }
 
   const {
     pendingPermissionRef, permissionCursor, setPermissionCursor, resolvePermission, cancelPermission,
@@ -906,8 +954,7 @@ export function useKeyboard(opts: KeyboardOptions) {
           sendMessage(message, images.length ? images : undefined)
         }
         clearPasteStore()
-        setInput(() => '')
-        setCaret(() => 0)
+        updateInputState('', 0)
         setPaletteCursor(() => 0)
         // A fresh prompt starts in insert mode — vim's own command line does the
         // same, and landing in normal mode after every send is a papercut.
@@ -933,17 +980,19 @@ export function useKeyboard(opts: KeyboardOptions) {
       }
 
       // --- caret movement (left/right, home/end, ctrl+a/ctrl+e) ---
-      if (key.leftArrow) { setCaret((i) => Math.max(0, i - 1)); return }
-      if (key.rightArrow) { setCaret((i) => Math.min(input.length, i + 1)); return }
-      if (key.ctrl && char === 'a') { setCaret(() => 0); return }
-      if (key.ctrl && char === 'e') { setCaret(() => input.length); return }
+      if (key.leftArrow) { const c = Math.max(0, caretRef.current - 1); caretRef.current = c; setCaret(() => c); return }
+      if (key.rightArrow) { const c = Math.min(inputRef.current.length, caretRef.current + 1); caretRef.current = c; setCaret(() => c); return }
+      if (key.ctrl && char === 'a') { caretRef.current = 0; setCaret(() => 0); return }
+      if (key.ctrl && char === 'e') { const c = inputRef.current.length; caretRef.current = c; setCaret(() => c); return }
 
       // text editing — any edit drops out of history browsing
       if (key.backspace || key.delete) {
         historyIndex = -1
         setPaletteCursor(() => 0); setFilePickerCursor(() => 0)
-        if (caret <= 0) return
-        const before = input.slice(0, caret)
+        const curCaret = caretRef.current
+        const curInput = inputRef.current
+        if (curCaret <= 0) return
+        const before = curInput.slice(0, curCaret)
         // If the text just left of the caret ends with a paste chip, delete it
         // whole (longest match wins so adjacent chips don't clip) and forget it.
         let match = ''
@@ -955,16 +1004,14 @@ export function useKeyboard(opts: KeyboardOptions) {
         }
         const cut = match ? match.length : 1
         if (match) { pasteStore.delete(match); imageStore.delete(match) }
-        setInput((s) => s.slice(0, caret - cut) + s.slice(caret))
-        setCaret((i) => Math.max(0, i - cut))
+        const nextInput = curInput.slice(0, curCaret - cut) + curInput.slice(curCaret)
+        const nextCaret = Math.max(0, curCaret - cut)
+        updateInputState(nextInput, nextCaret)
       } else if (char && !key.ctrl && !key.meta && !key.tab) {
-        const text = sanitizePaste(char)
-        if (text) {
-          historyIndex = -1
-          setPaletteCursor(() => 0); setFilePickerCursor(() => 0)
-          setInput((s) => s.slice(0, caret) + text + s.slice(caret))
-          setCaret((i) => i + text.length)
-        }
+        historyIndex = -1
+        setPaletteCursor(() => 0); setFilePickerCursor(() => 0)
+        const applied = applyTypedInput(inputRef.current, caretRef.current, char)
+        updateInputState(applied.input, applied.caret)
       }
     }
   })

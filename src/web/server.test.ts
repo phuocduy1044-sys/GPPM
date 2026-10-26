@@ -55,7 +55,7 @@ describe('viecodie web server', () => {
     expect(res.status).toBe(200)
     const hello = JSON.parse(res.body)
     expect(hello.state).toMatchObject({ busy: false, pending: null })
-    expect(hello.modes.map((m: { mode: string }) => m.mode)).toEqual(['default', 'plan', 'acceptEdits', 'bypass'])
+    expect(hello.modes.map((m: { mode: string }) => m.mode)).toEqual(['default', 'bypass'])
     expect(hello.commands.some((c: { name: string }) => c.name === '/plan')).toBe(true)
   })
 
@@ -64,7 +64,7 @@ describe('viecodie web server', () => {
     expect((await call(web, '/api/mode', auth, 'POST', '{"mode":"yolo"}')).status).toBe(400)
     expect((await call(web, '/api/permission', auth, 'POST', '{"id":1,"answer":"maybe"}')).status).toBe(400)
     expect((await call(web, '/api/mode', auth, 'POST', 'not json')).status).toBe(400)
-    expect((await call(web, '/api/mode', auth, 'POST', '{"mode":"plan"}')).status).toBe(200)
+    expect((await call(web, '/api/mode', auth, 'POST', '{"mode":"bypass"}')).status).toBe(200)
   })
 
   it('survives a malformed URL that any page could send it', async () => {

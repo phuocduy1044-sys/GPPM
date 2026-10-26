@@ -6,11 +6,11 @@ import { cn } from '@/lib/utils'
 
 const ICON = { default: ShieldCheck, plan: ClipboardList, acceptEdits: FilePen, bypass: ShieldOff } as const
 const TONE: Record<PermissionMode, string> = {
-  default: 'text-muted-foreground',
+  default: 'text-emerald-600 dark:text-emerald-400 font-medium',
+  bypass: 'text-rose-600 dark:text-rose-400 font-semibold',
   plan: 'text-sky-600 dark:text-sky-400',
   acceptEdits: 'text-violet-600 dark:text-violet-400',
-  bypass: 'text-destructive',
-}
+  }
 
 export function ModeMenu({ mode, modes, onChange }: { mode: PermissionMode; modes: ModeInfo[]; onChange: (m: PermissionMode) => void }) {
   const Icon = ICON[mode]

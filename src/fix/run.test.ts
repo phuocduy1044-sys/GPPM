@@ -42,7 +42,7 @@ describe('parseFixArgs', () => {
   it('takes --check and defaults the rest', () => {
     const o = parseFixArgs(['--check', 'npx tsc --noEmit'], root).options!
     expect(o.check).toBe('npx tsc --noEmit')
-    expect(o.mode).toBe('bypass')
+    expect(o.mode).toBe('default')
     expect(o.maxRounds).toBe(5)
     expect(o.outputFormat).toBe('text')
   })

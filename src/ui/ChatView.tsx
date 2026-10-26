@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react'
 import { Box, Text, measureElement, type DOMElement } from 'ink'
 import { renderMarkdownStreaming } from './markdown.js'
 import type { ChatMessage, ToolUseDisplay, ToolResultDisplay, PermissionRequest } from './types.js'
@@ -31,7 +31,7 @@ interface Props {
 // the untruncated text renders once the turn commits to a message.
 const STREAM_VIEWPORTS = 3
 
-export function ChatView({
+export const ChatView = memo(function ChatView({
   messages,
   streaming,
   streamingContent,
@@ -65,7 +65,7 @@ export function ChatView({
       const { height } = measureElement(viewRef.current)
       if (height > 0 && height !== viewportRows) setViewportRows(height)
     }
-  })
+  }, [messages, streaming, streamingContent, activeToolUses, activeToolResults, error, pendingPermission, logEpoch])
 
   // Publish geometry for the wheel/pageup handlers, which run outside the tree.
   useEffect(() => {
@@ -204,4 +204,4 @@ export function ChatView({
       </Box>
     </Box>
   )
-}
+})
