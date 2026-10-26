@@ -72,6 +72,7 @@ export interface PatchFile {
   oldHash: string;
   newHash: string;
   diff: string;                    // unified diff
+  newContent?: string;             // optional full patched content for deterministic apply
 }
 
 export type PatchStatus = 'proposed' | 'applied' | 'stale' | 'rejected' | 'failed';

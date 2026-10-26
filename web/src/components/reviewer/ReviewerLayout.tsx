@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   IconBug,
   IconCode,
@@ -29,6 +29,89 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string>('auth_buildAuthQuery')
   const [selectedFindingId, setSelectedFindingId] = useState<string>('f1')
   const [dualAiEnabled, setDualAiEnabled] = useState(true)
+
+  // Fetch live backend report if available
+  useEffect(() => {
+    fetch('/api/review/current')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.nodes && data.findings && data.findings.length > 0) {
+          const adaptedNodes = data.nodes.map((n) => ({
+            id: n.id,
+            file: n.filePath?.split(/[\\/]/).pop() || n.filePath || 'file',
+            functionName: n.name,
+            startLine: n.startLine,
+            endLine: n.endLine,
+            language: 'JavaScript/TypeScript',
+            hasIssue: data.findings.some((fi) => fi.nodeId === n.id || (fi.filePath === n.filePath && fi.line >= n.startLine && fi.line <= n.endLine)),
+            issueCount: data.findings.filter((fi) => fi.nodeId === n.id || (fi.filePath === n.filePath && fi.line >= n.startLine && fi.line <= n.endLine)).length,
+            calledBy: (n.callerIds || []).map((cid) => cid.split(':').pop() || cid),
+            calls: (n.calleeIds || []).map((cid) => ({ functionName: cid.split(':').pop() || cid, file: cid.split(':')[1] || cid })),
+          }))
+
+          const adaptedEdges = data.edges.map((e) => ({
+            id: e.id,
+            sourceNodeId: e.sourceId,
+            targetNodeId: e.targetId,
+            type: e.type === 'call' ? 'call' : 'cross_file',
+            label: e.evidenceSnippet ? e.evidenceSnippet.slice(0, 30) : undefined,
+          }))
+
+          const adaptedFindings = data.findings.map((f) => ({
+            id: f.id,
+            file: f.filePath?.split(/[\\/]/).pop() || f.filePath,
+            line: f.line,
+            endLine: f.endLine,
+            severity: f.severity,
+            category: f.category,
+            title: f.title,
+            description: f.explanation,
+            evidence: f.evidence,
+            rootCause: f.explanation,
+            triggerCondition: f.confidenceReason || 'Phát hiện qua phân tích AST Engine',
+            suggestedFix: f.suggestion,
+            patch: {
+              original: f.evidence,
+              replacement: f.suggestion,
+              diffText: `--- a/${f.filePath}\n+++ b/${f.filePath}\n@@ -${f.line},1 +${f.line},1 @@\n-${f.evidence}\n+${f.suggestion}`,
+            },
+            source: f.source || 'rule',
+            status: 'open',
+          }))
+
+          const uniqueFiles = Array.from(new Set(data.scanScope?.filesRead || []))
+          const adaptedFiles = uniqueFiles.map((fp) => {
+            const fileName = fp.split(/[\\/]/).pop() || fp
+            const issueCount = adaptedFindings.filter((af) => af.file === fileName || af.file.endsWith(fileName)).length
+            return {
+              name: fileName,
+              lineCount: 25,
+              issueCount,
+              status: issueCount > 0 ? `${issueCount} vấn đề` : 'Sạch',
+            }
+          })
+
+          setProject((prev) => ({
+            ...prev,
+            projectName: data.projectName || prev.projectName,
+            revision: typeof data.revision === 'string' ? 1 : (data.revision || prev.revision),
+            files: adaptedFiles.length > 0 ? adaptedFiles : prev.files,
+            nodes: adaptedNodes.length > 0 ? adaptedNodes : prev.nodes,
+            edges: adaptedEdges.length > 0 ? adaptedEdges : prev.edges,
+            findings: adaptedFindings.length > 0 ? adaptedFindings : prev.findings,
+          }))
+
+          if (adaptedNodes.length > 0) {
+            setSelectedNodeId(adaptedNodes[0].id)
+            if (adaptedNodes[0].file) setActiveFile(adaptedNodes[0].file)
+          }
+          if (adaptedFindings.length > 0) {
+            setSelectedFindingId(adaptedFindings[0].id)
+          }
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId)
   const selectedFinding = project.findings.find((f) => f.id === selectedFindingId)
