@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, KeyRound } from 'lucide-react'
-import { IconBuildingSkyscraper, IconCode, IconCpu, IconMenu2, IconPlus, IconShieldLock, IconSparkles, IconTerminal2, IconUserCheck, IconVolume, IconWifiOff } from '@tabler/icons-react'
+import { IconFocus2, IconBuildingSkyscraper, IconCode, IconCpu, IconMenu2, IconPlus, IconShieldLock, IconSparkles, IconTerminal2, IconUserCheck, IconVolume, IconWifiOff } from '@tabler/icons-react'
+import { ReviewerLayout } from '@/components/reviewer/ReviewerLayout'
 import { AddModelModal } from '@/components/AddModelModal'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -192,6 +193,7 @@ function notify(title: string, body?: string) {
 
 export function App() {
   const [showAddModel, setShowAddModel] = useState(false)
+  const [viewMode, setViewMode] = useState<'reviewer' | 'chat'>('reviewer')
   const [toast, setToast] = useState<string | null>(null)
   const showToast = useCallback((text: string) => {
     setToast(text)
@@ -294,6 +296,10 @@ export function App() {
       </div>
     )
   }
+  if (viewMode === 'reviewer') {
+    return <ReviewerLayout onSwitchToAgentChat={() => setViewMode('chat')} />
+  }
+
   if (!ready || !state) {
     return <div className="grid h-full place-items-center text-muted-foreground">Đang kết nối tới Viecodie…</div>
   }
@@ -327,6 +333,15 @@ export function App() {
             {!connected && <span className="flex items-center gap-1 text-xs text-destructive"><IconWifiOff className="size-3.5" stroke={1.75} /> đang kết nối lại</span>}
             <Tally messages={messages} />
             <Meter state={state} />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewMode('reviewer')}
+              className="gap-1.5 text-xs text-lime-400 border-lime-500/40 bg-lime-500/10 hover:bg-lime-500/20"
+            >
+              <IconFocus2 className="size-3.5" />
+              <span>Code Reviewer by Graph</span>
+            </Button>
             <Button
               variant="outline"
               size="sm"
