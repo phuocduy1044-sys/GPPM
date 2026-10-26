@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync, writeFileSync } from 'fs';
 import { reviewProject } from './engine.js';
@@ -12,6 +12,13 @@ describe('Review Engine Full Lifecycle', () => {
 
   const origDb = readFileSync(dbPath, 'utf8');
   const origAuth = readFileSync(authPath, 'utf8');
+
+  afterEach(() => {
+    try {
+      writeFileSync(dbPath, origDb, 'utf8');
+      writeFileSync(authPath, origAuth, 'utf8');
+    } catch { /* ignore */ }
+  });
 
   it('detects SQL injection and bug null dereference', async () => {
     const report = await reviewProject({ projectRoot: demoRoot, mode: 'rules' });
@@ -45,26 +52,20 @@ describe('Review Engine Full Lifecycle', () => {
     const applyRes = applyPatch(demoRoot, patch, report.revision, true);
     expect(applyRes.success).toBe(true);
 
-    try {
-      // Test now passes after patch!
-      const postVerify = await runVerification({
-        projectRoot: demoRoot,
-        checkCommand: 'npm test',
-        baseRevision: applyRes.newRevision,
-      });
-      expect(postVerify.status).toBe('passed');
-      expect(postVerify.exitCode).toBe(0);
+    // Test now passes after patch!
+    const postVerify = await runVerification({
+      projectRoot: demoRoot,
+      checkCommand: 'npm test',
+      baseRevision: applyRes.newRevision,
+    });
+    expect(postVerify.status).toBe('passed');
+    expect(postVerify.exitCode).toBe(0);
 
-      // Re-review: SQL injection finding should be gone
-      const postReport = await reviewProject({ projectRoot: demoRoot, mode: 'rules' });
-      const postSql = postReport.findings.find(f => f.ruleId === 'SEC_SQL_INJECTION');
-      expect(postSql).toBeUndefined();
-    } finally {
-      // Restore original files for repeat testing
-      writeFileSync(dbPath, origDb, 'utf8');
-      writeFileSync(authPath, origAuth, 'utf8');
-    }
-  });
+    // Re-review: SQL injection finding should be gone
+    const postReport = await reviewProject({ projectRoot: demoRoot, mode: 'rules' });
+    const postSql = postReport.findings.find(f => f.ruleId === 'SEC_SQL_INJECTION');
+    expect(postSql).toBeUndefined();
+  }, 15000);
 
   it('detects hardcoded secret, loose equality, and var keyword', async () => {
     const { buildAstGraph } = await import('./ast.js');

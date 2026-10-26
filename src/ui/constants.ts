@@ -19,7 +19,8 @@ export interface Command {
 export const COMMANDS: Command[] = [
   { name: '/plan',   description: 'lập kế hoạch trước — nghiên cứu chỉ đọc, phê duyệt trước khi sửa' },
   { name: '/init',   description: 'khảo sát dự án và tạo tệp hướng dẫn VIECODIE.md' },
-  { name: '/review', description: 'xem lại các thay đổi chưa commit · /review <nhánh|đường-dẫn>' },
+  { name: '/review', description: 'phân tích đánh giá mã nguồn dự án · gõ /graph để xem đồ thị trực quan' },
+  { name: '/graph',  description: 'mở giao diện trực quan Code Reviewer by Graph của lần review hiện tại' },
   { name: '/models', description: 'chọn mô hình · tab đổi nhà cung cấp · ←→ mức độ nỗ lực' },
   { name: '/provider', description: 'chuyển đổi backend · /provider add <tên> [khóaApi] · remove <tên>' },
   { name: '/new',    description: 'lưu phiên hiện tại và bắt đầu phiên mới' },

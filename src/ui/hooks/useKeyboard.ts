@@ -797,9 +797,16 @@ export function useKeyboard(opts: KeyboardOptions) {
         } else if (trimmed === '/init') {
           setNotice(null)
           sendMessage(INIT_PROMPT)
-        } else if (trimmed === '/review' || trimmed.startsWith('/review ')) {
+        } else if (trimmed === '/review' || trimmed.startsWith('/review ') || trimmed === '/Review' || trimmed.startsWith('/Review ')) {
           setNotice(null)
-          sendMessage(reviewPrompt(trimmed.slice('/review'.length)))
+          import('../handlers/reviewGraphHandler.js')
+            .then(({ handleReviewCommand }) => handleReviewCommand(trimmed, process.cwd(), report, setNotice))
+            .catch((err) => report(`❌ ${err instanceof Error ? err.message : String(err)}`))
+        } else if (trimmed.toLowerCase() === '/graph' || trimmed.toLowerCase().startsWith('/graph ')) {
+          setNotice(null)
+          import('../handlers/reviewGraphHandler.js')
+            .then(({ handleGraphCommand }) => handleGraphCommand(process.cwd(), report, setNotice))
+            .catch((err) => report(`❌ ${err instanceof Error ? err.message : String(err)}`))
         } else if (trimmed === '/export' || trimmed.startsWith('/export ')) {
           if (!messages.length) setNotice('nothing to export yet')
           else {
