@@ -153,6 +153,36 @@ export function createWebHandler(agent: WebAgent, token: string) {
           case '/api/models': return send(res, 200, await agent.models())
           case '/api/providers': return send(res, 200, { providers: agent.providers() })
           case '/api/checkpoints': return send(res, 200, { checkpoints: agent.checkpoints() })
+          case '/api/health': {
+            return send(res, 200, {
+              status: 'ok',
+              engine: 'viecodie-core',
+              version: '3.13.1',
+              cwd: agent.cwd,
+            })
+          }
+          case '/api/review/current': {
+            const { getCurrentReport } = await import('../review/engine.js')
+            const report = getCurrentReport()
+            if (!report) return send(res, 404, { error: 'Chưa có báo cáo review nào' })
+            return send(res, 200, report)
+          }
+          case '/api/review/source': {
+            const relPath = str(url.searchParams.get('path'))
+            const rev = str(url.searchParams.get('revision'))
+            if (!relPath) return send(res, 400, { error: 'expected ?path=<file>' })
+            const { resolve, normalize } = await import('path')
+            const { readFileSync, existsSync } = await import('fs')
+            const fullPath = resolve(agent.cwd, relPath)
+            if (!fullPath.startsWith(normalize(agent.cwd))) {
+              return send(res, 403, { error: 'Truy cập ngoài phạm vi thư mục dự án bị từ chối' })
+            }
+            if (!existsSync(fullPath)) {
+              return send(res, 404, { error: 'Tệp tin không tồn tại' })
+            }
+            const content = readFileSync(fullPath, 'utf8')
+            return send(res, 200, { filePath: relPath, revision: rev || 'current', content })
+          }
         }
         return send(res, 404, { error: 'not found' })
       }
@@ -271,6 +301,60 @@ export function createWebHandler(agent: WebAgent, token: string) {
           if (model) agent.chooseModel(model)
 
           return send(res, 200, { ok: true, provider: name, model, contextWindow, outputTokens })
+        }
+        case '/api/review': {
+          const { reviewProject } = await import('../review/engine.js')
+          const projectPath = str(body.projectPath) || agent.cwd
+          const mode = str(body.mode)
+          try {
+            const report = await reviewProject({ projectRoot: projectPath, mode: (mode as any) || 'rules' })
+            return send(res, 200, { jobId: report.reviewId, status: 'completed', report })
+          } catch (err) {
+            return send(res, 500, { error: err instanceof Error ? err.message : String(err) })
+          }
+        }
+        case '/api/review/patch': {
+          const { createPatch } = await import('../review/patch.js')
+          const { getCurrentReport } = await import('../review/engine.js')
+          const current = getCurrentReport()
+          if (!current) return send(res, 404, { error: 'Không tìm thấy báo cáo review hiện tại' })
+          const findingIds = Array.isArray(body.findingIds) ? body.findingIds.filter((id): id is string => typeof id === 'string') : undefined
+          const patch = createPatch(agent.cwd, current.findings, current.revision, findingIds)
+          return send(res, 200, { patch })
+        }
+        case '/api/review/apply': {
+          const { applyPatch } = await import('../review/patch.js')
+          const { getCurrentReport, reviewProject } = await import('../review/engine.js')
+          const current = getCurrentReport()
+          if (!current) return send(res, 404, { error: 'Không tìm thấy báo cáo review' })
+          if (!current.patch) return send(res, 400, { error: 'Chưa có patch nào được tạo để áp dụng' })
+          const baseRevision = str(body.baseRevision) || current.revision
+          const confirm = Boolean(body.confirm)
+          const result = applyPatch(agent.cwd, current.patch, baseRevision, confirm)
+          if (!result.success) {
+            return send(res, 400, result)
+          }
+          const newReport = await reviewProject({ projectRoot: agent.cwd, mode: current.analysisMode })
+          return send(res, 200, { ...result, report: newReport })
+        }
+        case '/api/review/verify': {
+          const { runVerification } = await import('../review/verify.js')
+          const { getCurrentReport } = await import('../review/engine.js')
+          const checkCommand = str(body.checkCommand)
+          if (!checkCommand) return send(res, 400, { error: 'expected { checkCommand }' })
+          const confirm = Boolean(body.confirm)
+          if (!confirm) return send(res, 400, { error: 'Người dùng cần xác nhận chạy kiểm thử (confirm: true)' })
+          const current = getCurrentReport()
+          const baseRevision = current?.revision || 'rev-current'
+          const result = await runVerification({
+            projectRoot: agent.cwd,
+            checkCommand,
+            baseRevision,
+          })
+          if (current) {
+            current.verification = result
+          }
+          return send(res, 200, result)
         }
         case '/api/rewind': {
           if (typeof body.turn !== 'number') return send(res, 400, { error: 'expected { turn }' })

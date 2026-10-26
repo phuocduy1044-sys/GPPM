@@ -39,6 +39,15 @@ Dùng chung
       --help                    hiển thị trợ giúp này
 
 Lệnh con
+  viecodie review [path]            phân tích mã nguồn 4 nhóm vấn đề (bug/security/style/maintainability)
+      --output-format <fmt>     text (mặc định) | json
+      --mode <rules|ai>         chế độ phân tích (mặc định: rules)
+      --web                     mở giao diện Code Reviewer by Graph
+      --port <n>                cổng web (mặc định 4747)
+      --no-open                 chỉ in đường dẫn, không mở trình duyệt
+  viecodie verify [path]            chạy kiểm thử xác minh độc lập
+      --check "<cmd>"           lệnh kiểm thử cần chạy (ví dụ npm test)
+      --output-format <fmt>     text (mặc định) | json
   viecodie fix [direction]          chạy test, sửa lỗi, lặp lại đến khi pass
       --check "<cmd>"           lệnh cần pass (mặc định: tự suy ra, ví dụ npm test)
       --max-rounds <n>          số lần thử sửa trước khi bỏ cuộc (mặc định 5)
@@ -70,7 +79,7 @@ for (let i = 0; i < args.length; i++) {
 
 /** The first bare word that isn't the value of a flag — the subcommand, if any. */
 function firstCommand(argv: string[]): string | undefined {
-  const takesValue = new Set(['--provider', '-P', '--port', '--model', '--resume', '--output-format', '--permission-mode', '--max-turns', '--allowed-tools', '--allowedTools'])
+  const takesValue = new Set(['--provider', '-P', '--port', '--model', '--resume', '--output-format', '--permission-mode', '--max-turns', '--allowed-tools', '--allowedTools', '--check', '--mode', '--timeout'])
   for (let i = 0; i < argv.length; i++) {
     if (takesValue.has(argv[i])) { i++; continue }
     if (argv[i].startsWith('-')) continue
@@ -133,6 +142,12 @@ if (cmd === 'version' || args.includes('--version') || args.includes('-v')) {
     console.error('usage: viecodie provider [list [--all] | add <name> [baseUrl] [apiKey] | remove <name>]')
     process.exit(1)
   }
+} else if (cmd === 'review' || args.includes('review')) {
+  const { runReviewCli } = await import('./review/cli.js')
+  process.exit(await runReviewCli(args))
+} else if (cmd === 'verify' || args.includes('verify')) {
+  const { runVerifyCli } = await import('./review/cli.js')
+  process.exit(await runVerifyCli(args))
 } else if (cmd === 'fix') {
   const { parseFixArgs, runFix } = await import('./fix/run.js')
   const parsed = parseFixArgs(args.slice(args.indexOf(cmd) + 1))

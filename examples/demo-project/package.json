@@ -1,0 +1,9 @@
+{
+  "name": "viecodie-demo-project",
+  "version": "1.0.0",
+  "description": "Demo project for VIECODIE Code Reviewer verification",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
