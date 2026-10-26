@@ -128,6 +128,12 @@ function defaultProviders(): Record<string, ProviderEntry> {
       type: 'ollama',
       baseUrl: process.env.OLLAMA_HOST ?? 'http://localhost:11434',
     },
+    deepseek: {
+      type: 'openai',
+      baseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
+      apiKeyEnv: 'DEEPSEEK_API_KEY',
+      contextWindow: 65536,
+    },
     lmstudio: {
       type: 'openai',
       baseUrl: process.env.LMSTUDIO_HOST ?? process.env.LLM_HOST ?? 'http://localhost:1234',

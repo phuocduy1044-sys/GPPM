@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, KeyRound } from 'lucide-react'
 import { IconBuildingSkyscraper, IconCode, IconCpu, IconMenu2, IconPlus, IconShieldLock, IconSparkles, IconTerminal2, IconUserCheck, IconVolume, IconWifiOff } from '@tabler/icons-react'
 import { AddModelModal } from '@/components/AddModelModal'
 import { Button } from '@/components/ui/button'

@@ -89,6 +89,7 @@ export const PRESETS: Record<string, Preset> = {
     apiKeyEnv: 'DEEPSEEK_API_KEY',
     label: 'DeepSeek',
     contextWindow: 65536,
+    defaultModel: 'deepseek-chat',
   },
   mistral: {
     type: 'openai',

@@ -106,7 +106,7 @@ export function ModelMenu({ state, onError, onOpenAddModel }: { state: WebState;
               onClick={() => act(post('effort', { effort: e }))}>{e}</Button>
           ))}
         </div>
-        {providers.length > 1 && (
+        {providers.length > 0 && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuSub>
@@ -116,7 +116,12 @@ export function ModelMenu({ state, onError, onOpenAddModel }: { state: WebState;
                   {providers.map((p) => (
                     <DropdownMenuRadioItem key={p.name} value={p.name} onSelect={(e) => e.preventDefault()}>
                       <div className="min-w-0">
-                        <div>{p.name}</div>
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <span>{p.name}</span>
+                          <span className={`rounded px-1 py-0.2 text-[9px] font-mono font-semibold ${p.kind === 'api' ? 'bg-blue-500/15 text-blue-500' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                            {p.kind === 'api' ? 'Online' : 'Offline'}
+                          </span>
+                        </div>
                         <div className="truncate text-xs text-muted-foreground">{p.baseUrl}</div>
                       </div>
                     </DropdownMenuRadioItem>
@@ -124,6 +129,22 @@ export function ModelMenu({ state, onError, onOpenAddModel }: { state: WebState;
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+          </>
+        )}
+        {onOpenAddModel && (
+          <>
+            <DropdownMenuSeparator />
+            <div
+              role="menuitem"
+              className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-xs font-medium text-primary hover:bg-accent transition-colors"
+              onClick={() => {
+                setOpen(false)
+                onOpenAddModel()
+              }}
+            >
+              <IconPlus className="size-3.5" stroke={2} />
+              <span>Cấu hình Model AI (Online &amp; Offline)</span>
+            </div>
           </>
         )}
       </DropdownMenuContent>

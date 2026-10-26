@@ -81,11 +81,15 @@ if errorlevel 1 goto failed
 powershell.exe -NoProfile -Command "$p=$env:VIE_PREFIX; $old=[Environment]::GetEnvironmentVariable('Path','User'); $parts=@($old -split ';' | Where-Object { $_ }); if ($parts -notcontains $p) { [Environment]::SetEnvironmentVariable('Path', (($parts + $p) -join ';'), 'User') }"
 if errorlevel 1 echo WARNING: User PATH could not be saved. Full command: "%VIE_PREFIX%\viecodie.cmd"
 echo.
-echo [5/5] AI setup
-echo [1] Set up local Ollama and download a model
-echo [2] Keep existing AI / API configuration and skip Ollama
-choice /c 12 /n /m "Choose 1 or 2: "
-if errorlevel 2 goto success
+echo [5/5] AI setup - Online (DeepSeek Cloud API) & Offline (Ollama Local)
+echo [1] Setup Offline mode (Ollama local: Qwen / DeepSeek)
+echo [2] Setup Online mode (DeepSeek Cloud API - no Ollama needed)
+echo [3] Setup Dual mode (Both Online DeepSeek & Offline Ollama)
+echo [4] Keep existing AI / API configuration and finish
+choice /c 1234 /n /m "Choose 1, 2, 3 or 4: "
+if errorlevel 4 goto success
+if errorlevel 3 goto setup_dual
+if errorlevel 2 goto setup_online
 set "VIE_STEP=Install Ollama"
 where ollama.exe >nul 2>nul
 if not errorlevel 1 goto ollama_ready
@@ -122,9 +126,28 @@ ollama.exe show %VIE_MODEL% >nul
 if errorlevel 1 goto ai_failed
 set "VIE_STEP=Save Ollama provider and model"
 rem Preserve all other settings. Back up existing config before making changes.
-node -e "const fs=require('fs'),path=require('path');const d=path.join(require('os').homedir(),'.viecodie'),p=path.join(d,'config.json'),legacy=path.join(require('os').homedir(),'.miii','config.json');const source=fs.existsSync(p)?p:fs.existsSync(legacy)?legacy:null;const c=source?JSON.parse(fs.readFileSync(source,'utf8')):{};fs.mkdirSync(d,{recursive:true});if(source)fs.copyFileSync(source,p+'.backup-'+Date.now());c.provider='ollama';c.model=process.env.VIE_MODEL;c.providers={...c.providers,ollama:{type:'ollama',baseUrl:'http://localhost:11434'}};fs.writeFileSync(p,JSON.stringify(c,null,2));"
+node -e "const fs=require('fs'),path=require('path');const d=path.join(require('os').homedir(),'.viecodie'),p=path.join(d,'config.json'),legacy=path.join(require('os').homedir(),'.miii','config.json');const source=fs.existsSync(p)?p:fs.existsSync(legacy)?legacy:null;const c=source?JSON.parse(fs.readFileSync(source,'utf8')):{};fs.mkdirSync(d,{recursive:true});if(source)fs.copyFileSync(source,p+'.backup-'+Date.now());c.provider='ollama';c.model=process.env.VIE_MODEL;c.providers={...c.providers,ollama:{type:'ollama',baseUrl:'http://localhost:11434'},deepseek:{type:'openai',baseUrl:'https://api.deepseek.com',apiKeyEnv:'DEEPSEEK_API_KEY',contextWindow:65536}};fs.writeFileSync(p,JSON.stringify(c,null,2));"
 if errorlevel 1 goto ai_failed
 goto success
+
+:setup_online
+set "VIE_STEP=Configure DeepSeek Online API"
+echo.
+set "DEEPSEEK_KEY="
+set /p "DEEPSEEK_KEY=Enter your DeepSeek API Key (press Enter to skip): "
+node -e "const fs=require('fs'),path=require('path');const d=path.join(require('os').homedir(),'.viecodie'),p=path.join(d,'config.json'),legacy=path.join(require('os').homedir(),'.miii','config.json');const source=fs.existsSync(p)?p:fs.existsSync(legacy)?legacy:null;const c=source?JSON.parse(fs.readFileSync(source,'utf8')):{};fs.mkdirSync(d,{recursive:true});if(source)fs.copyFileSync(source,p+'.backup-'+Date.now());c.provider='deepseek';c.model='deepseek-chat';const key=process.env.DEEPSEEK_KEY?.trim();c.providers={...c.providers,deepseek:{type:'openai',baseUrl:'https://api.deepseek.com',apiKey:key||undefined,apiKeyEnv:'DEEPSEEK_API_KEY',contextWindow:65536},ollama:{type:'ollama',baseUrl:'http://localhost:11434'}};c.modelContexts={...c.modelContexts,'deepseek-chat':65536,'deepseek-reasoner':65536};fs.writeFileSync(p,JSON.stringify(c,null,2));"
+if errorlevel 1 goto ai_failed
+echo DeepSeek Online API configured successfully!
+goto success
+
+:setup_dual
+set "VIE_STEP=Configure Dual Mode (Online & Offline)"
+echo.
+set "DEEPSEEK_KEY="
+set /p "DEEPSEEK_KEY=Enter your DeepSeek API Key for Online mode (press Enter to skip): "
+rem Configure online first, then continue to Ollama setup
+node -e "const fs=require('fs'),path=require('path');const d=path.join(require('os').homedir(),'.viecodie'),p=path.join(d,'config.json'),legacy=path.join(require('os').homedir(),'.miii','config.json');const source=fs.existsSync(p)?p:fs.existsSync(legacy)?legacy:null;const c=source?JSON.parse(fs.readFileSync(source,'utf8')):{};fs.mkdirSync(d,{recursive:true});if(source)fs.copyFileSync(source,p+'.backup-'+Date.now());const key=process.env.DEEPSEEK_KEY?.trim();c.providers={...c.providers,deepseek:{type:'openai',baseUrl:'https://api.deepseek.com',apiKey:key||undefined,apiKeyEnv:'DEEPSEEK_API_KEY',contextWindow:65536}};c.modelContexts={...c.modelContexts,'deepseek-chat':65536,'deepseek-reasoner':65536};fs.writeFileSync(p,JSON.stringify(c,null,2));"
+goto ollama_ready
 :node_manual
 echo Install Node.js LTS from https://nodejs.org then run INSTALL.BAT again.
 echo Node.js 22 or newer is required by this installer.

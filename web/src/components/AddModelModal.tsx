@@ -17,17 +17,49 @@ interface Preset {
   model: string
   contextWindow: number
   outputTokens: number
+  mode: 'online' | 'offline'
 }
 
 const PRESETS: Preset[] = [
   {
-    label: 'FPT Cloud',
-    name: 'fptcloud',
+    label: 'DeepSeek Chat',
+    name: 'deepseek',
     type: 'openai',
-    baseUrl: 'https://mkp-api.fptcloud.com',
-    model: 'FPT.TTS-ultra',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    contextWindow: 65536,
+    outputTokens: 8192,
+    mode: 'online',
+  },
+  {
+    label: 'DeepSeek R1',
+    name: 'deepseek',
+    type: 'openai',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-reasoner',
+    contextWindow: 65536,
+    outputTokens: 8192,
+    mode: 'online',
+  },
+  {
+    label: 'Ollama Qwen',
+    name: 'ollama',
+    type: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    model: 'qwen2.5-coder:7b',
     contextWindow: 32768,
     outputTokens: 8192,
+    mode: 'offline',
+  },
+  {
+    label: 'Ollama DeepSeek',
+    name: 'ollama',
+    type: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    model: 'deepseek-r1:7b',
+    contextWindow: 32768,
+    outputTokens: 8192,
+    mode: 'offline',
   },
   {
     label: 'OpenAI',
@@ -37,15 +69,17 @@ const PRESETS: Preset[] = [
     model: 'gpt-4o-mini',
     contextWindow: 128000,
     outputTokens: 16384,
+    mode: 'online',
   },
   {
-    label: 'Ollama',
-    name: 'ollama',
-    type: 'ollama',
-    baseUrl: 'http://localhost:11434',
-    model: 'qwen2.5-coder:7b',
+    label: 'FPT Cloud',
+    name: 'fptcloud',
+    type: 'openai',
+    baseUrl: 'https://mkp-api.fptcloud.com',
+    model: 'FPT.TTS-ultra',
     contextWindow: 32768,
     outputTokens: 8192,
+    mode: 'online',
   },
   {
     label: 'LM Studio',
@@ -55,14 +89,15 @@ const PRESETS: Preset[] = [
     model: 'local-model',
     contextWindow: 32768,
     outputTokens: 8192,
+    mode: 'offline',
   },
 ]
 
 export function AddModelModal({ open, onClose, onSuccess }: AddModelModalProps) {
-  const [name, setName] = useState('fptcloud')
+  const [name, setName] = useState('deepseek')
   const [type, setType] = useState<'openai' | 'ollama'>('openai')
-  const [baseUrl, setBaseUrl] = useState('https://mkp-api.fptcloud.com')
-  const [model, setModel] = useState('FPT.TTS-ultra')
+  const [baseUrl, setBaseUrl] = useState('https://api.deepseek.com')
+  const [model, setModel] = useState('deepseek-chat')
   const [apiKey, setApiKey] = useState('')
   const [contextWindow, setContextWindow] = useState('32768')
   const [outputTokens, setOutputTokens] = useState('8192')
@@ -152,9 +187,12 @@ export function AddModelModal({ open, onClose, onSuccess }: AddModelModalProps) 
                 key={p.label}
                 type="button"
                 onClick={() => applyPreset(p)}
-                className="rounded-md border border-border/80 bg-secondary/80 px-2.5 py-1 text-xs font-medium transition-all hover:bg-accent hover:border-primary/50 shadow-3d-1"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/80 bg-secondary/80 px-2.5 py-1 text-xs font-medium transition-all hover:bg-accent hover:border-primary/50 shadow-3d-1"
               >
-                {p.label}
+                <span>{p.label}</span>
+                <span className={`rounded px-1 py-0.2 text-[10px] font-mono font-semibold ${p.mode === 'online' ? 'bg-blue-500/15 text-blue-500 border border-blue-500/30' : 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'}`}>
+                  {p.mode === 'online' ? 'Online' : 'Offline'}
+                </span>
               </button>
             ))}
           </div>
