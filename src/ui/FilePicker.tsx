@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Box, Text } from 'ink'
 import { readdirSync } from 'fs'
 import { join, relative } from 'path'
@@ -76,7 +77,7 @@ interface Props {
   cursor: number
 }
 
-export function FilePicker({ matches, cursor }: Props) {
+export const FilePicker = memo(function FilePicker({ matches, cursor }: Props) {
   if (matches.length === 0) return null
   return (
     <Box
@@ -86,20 +87,21 @@ export function FilePicker({ matches, cursor }: Props) {
       marginX={1}
       marginBottom={0}
       paddingX={1}
+      flexShrink={0}
     >
       {matches.map((f, i) => {
         const active = i === cursor
         return (
-          <Box key={f}>
-            <Text bold={active} color={active ? C.blue : undefined} dimColor={!active}>
+          <Box key={f} flexShrink={0}>
+            <Text bold={active} color={active ? C.blue : undefined} dimColor={!active} wrap="truncate">
               {active ? '❯ ' : '  '}{f}
             </Text>
           </Box>
         )
       })}
-      <Box marginTop={0}>
-        <Text dimColor>↑↓ navigate   tab insert   esc dismiss</Text>
+      <Box marginTop={0} flexShrink={0}>
+        <Text dimColor wrap="truncate">↑↓ navigate   tab insert   esc dismiss</Text>
       </Box>
     </Box>
   )
-}
+})

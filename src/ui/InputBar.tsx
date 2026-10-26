@@ -113,9 +113,11 @@ export const InputBar = memo(function InputBar({
   // The stream Ink is actually rendering to, not the global process.stdout —
   // they differ under test and when the app is driven programmatically.
   const { stdout } = useStdout()
-  const view = viewport(input, caret ?? input.length, fieldWidth(stdout?.columns ?? 80))
+  const fw = fieldWidth(stdout?.columns ?? 80)
+  const view = viewport(input, caret ?? input.length, fw)
   const showPlaceholder = input.length === 0
-  const placeholder = busy ? BUSY_PLACEHOLDER : INPUT_PLACEHOLDER
+  const rawPlaceholder = busy ? BUSY_PLACEHOLDER : INPUT_PLACEHOLDER
+  const placeholder = rawPlaceholder.slice(0, fw)
   const tallyText = tally?.files
     ? `${tally.files} file${tally.files === 1 ? '' : 's'} ${formatStat(tally.added, tally.removed)}`
     : null
@@ -139,6 +141,7 @@ export const InputBar = memo(function InputBar({
                 bar still shows where typing will land. */}
             <Text inverse>{placeholder.slice(0, 1)}</Text>
             <Text dimColor>{placeholder.slice(1)}</Text>
+            <Text dimColor>{' '}</Text>
           </>
         ) : (
           <>
@@ -159,7 +162,10 @@ export const InputBar = memo(function InputBar({
         {vim === 'normal' && (
           <Text color={C.magenta} bold>NORMAL{' · '}</Text>
         )}
-        <Text dimColor>
+        <Text
+          color={hint?.startsWith('✓') ? C.green : hint?.startsWith('⚠') ? C.yellow : undefined}
+          dimColor={!hint?.startsWith('✓') && !hint?.startsWith('⚠')}
+        >
           {fitHint(
             hint ?? (busy ? BUSY_HINTS : INPUT_HINTS),
             // The mode chip and the tally eat into the same row, so the hints

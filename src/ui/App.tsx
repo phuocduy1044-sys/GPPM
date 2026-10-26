@@ -552,11 +552,6 @@ export function App({ resumeId, continueLast }: AppProps) {
         // to the terminal height, and the viewport is what gives up rows when the
         // palette, a picker or a warning needs them.
         <>
-          {notice && (
-            <Box marginLeft={2} marginBottom={1} flexShrink={0}>
-              <Text color={C.green}>{`✓ ${notice}`}</Text>
-            </Box>
-          )}
           <ChatView
             messages={agent.messages}
             streaming={agent.streaming}
@@ -573,7 +568,7 @@ export function App({ resumeId, continueLast }: AppProps) {
           {state === 'ready' && input.startsWith('/') && (
             <Box flexShrink={0} flexDirection="column">
               {/* Room left for the frame's other rows — status, input bar, warnings. */}
-              <CommandPalette filter={input} cursor={paletteCursor} maxRows={Math.max(3, termRows - 16)} />
+              <CommandPalette filter={input} cursor={paletteCursor} maxRows={Math.min(6, Math.max(3, termRows - 16))} />
             </Box>
           )}
 
@@ -618,7 +613,9 @@ export function App({ resumeId, continueLast }: AppProps) {
                 vim={vimIndicator()}
                 tally={tally}
                 hint={
-                  providerDown
+                  notice
+                    ? (notice.startsWith('✓') || notice.startsWith('⚠') ? notice : `✓ ${notice}`)
+                    : providerDown
                     ? 'provider unavailable — /provider to switch · /models to pick a model'
                     : mouseOn
                       ? undefined
