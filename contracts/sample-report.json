@@ -1,0 +1,345 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "rev-demo-20261027-001",
+  "revision": "e7b92f4c10a8",
+  "timestamp": "2026-10-27T04:15:00.000Z",
+  "projectName": "viecodie-demo",
+  "projectRoot": "C:\\GPPM_Viecodie\\examples\\demo-project",
+  "status": "completed",
+  "analysisMode": "rules",
+  "providerInfo": {
+    "provider": "deepseek",
+    "model": "deepseek-coder",
+    "isFallback": false
+  },
+  "scanScope": {
+    "totalFilesScanned": 4,
+    "filesRead": [
+      "src/app.ts",
+      "src/auth.ts",
+      "src/db.ts",
+      "src/audit.ts"
+    ],
+    "filesIgnored": [
+      "node_modules",
+      "dist",
+      ".git"
+    ],
+    "ignoreReasons": {
+      "node_modules": "Default excluded directory",
+      "dist": "Build artifact directory",
+      ".git": "Version control internals"
+    },
+    "scanDurationMs": 42
+  },
+  "nodes": [
+    {
+      "id": "file:src/app.ts",
+      "type": "file",
+      "name": "src/app.ts",
+      "filePath": "src/app.ts",
+      "startLine": 1,
+      "endLine": 45
+    },
+    {
+      "id": "fn:src/app.ts:handleLogin",
+      "type": "function",
+      "name": "handleLogin",
+      "filePath": "src/app.ts",
+      "startLine": 12,
+      "endLine": 25,
+      "callerIds": [],
+      "calleeIds": [
+        "fn:src/auth.ts:authenticateUser",
+        "fn:src/audit.ts:logSecurityEvent"
+      ]
+    },
+    {
+      "id": "fn:src/app.ts:runDailyAudit",
+      "type": "function",
+      "name": "runDailyAudit",
+      "filePath": "src/app.ts",
+      "startLine": 28,
+      "endLine": 42,
+      "callerIds": [],
+      "calleeIds": [
+        "fn:src/audit.ts:generateAuditSummary"
+      ]
+    },
+    {
+      "id": "file:src/auth.ts",
+      "type": "file",
+      "name": "src/auth.ts",
+      "filePath": "src/auth.ts",
+      "startLine": 1,
+      "endLine": 35
+    },
+    {
+      "id": "fn:src/auth.ts:authenticateUser",
+      "type": "function",
+      "name": "authenticateUser",
+      "filePath": "src/auth.ts",
+      "startLine": 10,
+      "endLine": 30,
+      "callerIds": [
+        "fn:src/app.ts:handleLogin"
+      ],
+      "calleeIds": [
+        "fn:src/db.ts:findUserByUsername"
+      ]
+    },
+    {
+      "id": "file:src/db.ts",
+      "type": "file",
+      "name": "src/db.ts",
+      "filePath": "src/db.ts",
+      "startLine": 1,
+      "endLine": 50
+    },
+    {
+      "id": "fn:src/db.ts:findUserByUsername",
+      "type": "function",
+      "name": "findUserByUsername",
+      "filePath": "src/db.ts",
+      "startLine": 12,
+      "endLine": 24,
+      "callerIds": [
+        "fn:src/auth.ts:authenticateUser"
+      ],
+      "calleeIds": [
+        "fn:src/db.ts:queryUnsafe"
+      ]
+    },
+    {
+      "id": "fn:src/db.ts:queryUnsafe",
+      "type": "function",
+      "name": "queryUnsafe",
+      "filePath": "src/db.ts",
+      "startLine": 26,
+      "endLine": 34,
+      "callerIds": [
+        "fn:src/db.ts:findUserByUsername"
+      ],
+      "calleeIds": []
+    },
+    {
+      "id": "fn:src/db.ts:querySafe",
+      "type": "function",
+      "name": "querySafe",
+      "filePath": "src/db.ts",
+      "startLine": 36,
+      "endLine": 48,
+      "callerIds": [],
+      "calleeIds": []
+    },
+    {
+      "id": "file:src/audit.ts",
+      "type": "file",
+      "name": "src/audit.ts",
+      "filePath": "src/audit.ts",
+      "startLine": 1,
+      "endLine": 38
+    },
+    {
+      "id": "fn:src/audit.ts:logSecurityEvent",
+      "type": "function",
+      "name": "logSecurityEvent",
+      "filePath": "src/audit.ts",
+      "startLine": 8,
+      "endLine": 18,
+      "callerIds": [
+        "fn:src/app.ts:handleLogin"
+      ],
+      "calleeIds": []
+    },
+    {
+      "id": "fn:src/audit.ts:generateAuditSummary",
+      "type": "function",
+      "name": "generateAuditSummary",
+      "filePath": "src/audit.ts",
+      "startLine": 20,
+      "endLine": 35,
+      "callerIds": [
+        "fn:src/app.ts:runDailyAudit"
+      ],
+      "calleeIds": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:import:app->auth",
+      "sourceId": "file:src/app.ts",
+      "targetId": "file:src/auth.ts",
+      "type": "import",
+      "evidenceLine": 2,
+      "evidenceSnippet": "import { authenticateUser } from './auth';",
+      "resolved": "resolved"
+    },
+    {
+      "id": "edge:call:app.handleLogin->auth.authenticateUser",
+      "sourceId": "fn:src/app.ts:handleLogin",
+      "targetId": "fn:src/auth.ts:authenticateUser",
+      "type": "call",
+      "evidenceLine": 15,
+      "evidenceSnippet": "const user = await authenticateUser(username, password);",
+      "resolved": "resolved"
+    },
+    {
+      "id": "edge:call:app.handleLogin->audit.logSecurityEvent",
+      "sourceId": "fn:src/app.ts:handleLogin",
+      "targetId": "fn:src/audit.ts:logSecurityEvent",
+      "type": "call",
+      "evidenceLine": 21,
+      "evidenceSnippet": "logSecurityEvent('LOGIN_SUCCESS', username);",
+      "resolved": "resolved"
+    },
+    {
+      "id": "edge:call:auth.authenticateUser->db.findUserByUsername",
+      "sourceId": "fn:src/auth.ts:authenticateUser",
+      "targetId": "fn:src/db.ts:findUserByUsername",
+      "type": "call",
+      "evidenceLine": 16,
+      "evidenceSnippet": "const record = await findUserByUsername(username);",
+      "resolved": "resolved"
+    },
+    {
+      "id": "edge:call:db.findUserByUsername->db.queryUnsafe",
+      "sourceId": "fn:src/db.ts:findUserByUsername",
+      "targetId": "fn:src/db.ts:queryUnsafe",
+      "type": "call",
+      "evidenceLine": 18,
+      "evidenceSnippet": "return queryUnsafe(`SELECT * FROM users WHERE username = '${username}'`);",
+      "resolved": "resolved"
+    },
+    {
+      "id": "edge:call:app.runDailyAudit->audit.generateAuditSummary",
+      "sourceId": "fn:src/app.ts:runDailyAudit",
+      "targetId": "fn:src/audit.ts:generateAuditSummary",
+      "type": "call",
+      "evidenceLine": 35,
+      "evidenceSnippet": "const report = generateAuditSummary(date);",
+      "resolved": "resolved"
+    }
+  ],
+  "unresolvedCalls": [
+    {
+      "callerId": "fn:src/audit.ts:logSecurityEvent",
+      "name": "analyticsCollector.send",
+      "line": 15,
+      "filePath": "src/audit.ts",
+      "reason": "Dynamic dispatch on injected global analytics interface"
+    }
+  ],
+  "findings": [
+    {
+      "id": "find-sec-sql-01",
+      "ruleId": "SEC_SQL_INJECTION",
+      "category": "security",
+      "severity": "critical",
+      "title": "Nguy cơ SQL Injection qua nối chuỗi trực tiếp",
+      "filePath": "src/db.ts",
+      "line": 18,
+      "endLine": 18,
+      "nodeId": "fn:src/db.ts:findUserByUsername",
+      "evidence": "return queryUnsafe(`SELECT * FROM users WHERE username = '${username}'`);",
+      "explanation": "Biến đầu vào 'username' được nối trực tiếp vào câu lệnh SQL thay vì dùng truy vấn tham số hóa (parameterized query). Kẻ tấn công có thể chèn chuỗi độc hại để vượt qua xác thực hoặc trích xuất cơ sở dữ liệu.",
+      "suggestion": "Chuyển sang sử dụng câu truy vấn tham số hóa querySafe('SELECT * FROM users WHERE username = $1', [username]) để ngăn chặn triệt để SQL Injection.",
+      "source": "both",
+      "confidence": "certain",
+      "confidenceReason": "Phát hiện template literal nối trực tiếp tham số hàm vào chuỗi SQL query."
+    },
+    {
+      "id": "find-bug-null-02",
+      "ruleId": "BUG_POTENTIAL_NULL_DEREFERENCE",
+      "category": "bug",
+      "severity": "high",
+      "title": "Truy cập thuộc tính trên đối tượng có thể null mà không kiểm tra",
+      "filePath": "src/auth.ts",
+      "line": 22,
+      "endLine": 22,
+      "nodeId": "fn:src/auth.ts:authenticateUser",
+      "evidence": "if (record.passwordHash === hashPassword(password))",
+      "explanation": "Hàm findUserByUsername có thể trả về null nếu không tìm thấy người dùng. Việc truy cập trực tiếp 'record.passwordHash' sẽ ném ngoại lệ TypeError làm gián đoạn tiến trình xác thực.",
+      "suggestion": "Kiểm tra 'if (!record) return null;' trước khi so sánh mật khẩu, hoặc dùng optional chaining 'record?.passwordHash'.",
+      "source": "rule",
+      "confidence": "high",
+      "confidenceReason": "Kiểu trả về của query có thể là undefined/null nhưng không có khối guard kiểm tra."
+    },
+    {
+      "id": "find-style-unused-03",
+      "ruleId": "STYLE_UNUSED_VARIABLE",
+      "category": "style",
+      "severity": "low",
+      "title": "Biến khai báo nhưng không sử dụng",
+      "filePath": "src/audit.ts",
+      "line": 11,
+      "endLine": 11,
+      "nodeId": "fn:src/audit.ts:logSecurityEvent",
+      "evidence": "const clientIp = req ? req.ip : 'unknown';",
+      "explanation": "Biến clientIp được tính toán nhưng không xuất hiện ở bất kỳ câu lệnh nào tiếp theo trong hàm, gây lãng phí bộ nhớ và khó đọc mã.",
+      "suggestion": "Truyền clientIp vào bản ghi log sự kiện hoặc loại bỏ biến nếu không cần thiết.",
+      "source": "rule",
+      "confidence": "certain",
+      "confidenceReason": "Trình phân tích cú pháp AST xác nhận clientIp không có node tham chiếu sau khi khai báo."
+    },
+    {
+      "id": "find-maint-complexity-04",
+      "ruleId": "MAINT_LONG_FUNCTION",
+      "category": "maintainability",
+      "severity": "medium",
+      "title": "Hàm xử lý quá nhiều trách nhiệm (Cognitive Complexity cao)",
+      "filePath": "src/app.ts",
+      "line": 28,
+      "endLine": 42,
+      "nodeId": "fn:src/app.ts:runDailyAudit",
+      "evidence": "async function runDailyAudit(date: string) { ... }",
+      "explanation": "Hàm vừa thực hiện gom dữ liệu kiểm toán, định dạng báo cáo, vừa tự ghi log và gửi email thông báo trực tiếp. Điều này vi phạm nguyên lý Single Responsibility.",
+      "suggestion": "Tách tiến trình gửi email sang một service riêng biệt (vd: AuditNotificationService) để mã nguồn dễ bảo trì và viết kiểm thử.",
+      "source": "ai",
+      "confidence": "medium",
+      "confidenceReason": "Đánh giá theo mẫu thiết kế phần mềm và số lượng tác vụ ngoại vi trong thân hàm."
+    }
+  ],
+  "patch": {
+    "id": "patch-fix-sql-01",
+    "findingIds": [
+      "find-sec-sql-01",
+      "find-bug-null-02"
+    ],
+    "baseRevision": "e7b92f4c10a8",
+    "files": [
+      {
+        "filePath": "src/db.ts",
+        "oldHash": "a1b2c3d4",
+        "newHash": "e5f6a7b8",
+        "diff": "--- a/src/db.ts\n+++ b/src/db.ts\n@@ -17,2 +17,2 @@\n-  return queryUnsafe(`SELECT * FROM users WHERE username = '${username}'`);\n+  return querySafe('SELECT * FROM users WHERE username = $1', [username]);\n"
+      },
+      {
+        "filePath": "src/auth.ts",
+        "oldHash": "11223344",
+        "newHash": "55667788",
+        "diff": "--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -21,2 +21,3 @@\n+  if (!record) return null;\n   if (record.passwordHash === hashPassword(password))\n"
+      }
+    ],
+    "fullDiff": "diff --git a/src/db.ts b/src/db.ts\n--- a/src/db.ts\n+++ b/src/db.ts\n@@ -17,2 +17,2 @@\n-  return queryUnsafe(`SELECT * FROM users WHERE username = '${username}'`);\n+  return querySafe('SELECT * FROM users WHERE username = $1', [username]);\ndiff --git a/src/auth.ts b/src/auth.ts\n--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -21,2 +21,3 @@\n+  if (!record) return null;\n   if (record.passwordHash === hashPassword(password))\n",
+    "status": "proposed"
+  },
+  "verification": {
+    "checkId": "chk-vitest-auth",
+    "command": "npm test -- tests/auth.test.ts",
+    "status": "passed",
+    "baseRevision": "e7b92f4c10a8",
+    "targetRevision": "e7b92f4c10a8",
+    "exitCode": 0,
+    "durationMs": 480,
+    "stdout": "✓ tests/auth.test.ts (2 tests) 42ms\n  ✓ authenticateUser should reject SQL injection payloads (12ms)\n  ✓ authenticateUser should return null for non-existing users (8ms)\n\nTest Files  1 passed (1)\nTests  2 passed (2)\nDuration  480ms",
+    "stderr": "",
+    "sanitizedLog": "✓ tests/auth.test.ts (2 tests)\n  ✓ authenticateUser should reject SQL injection payloads\n  ✓ authenticateUser should return null for non-existing users\nPassed all tests.",
+    "testsSummary": {
+      "passed": 2,
+      "failed": 0,
+      "total": 2
+    },
+    "verifiedAt": "2026-10-27T04:15:30.000Z"
+  }
+}
