@@ -30,12 +30,33 @@ export function GraphReview({
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [searchQuery, setSearchQuery] = useState('')
+  const [filterIssueOnly, setFilterIssueOnly] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
 
-  // Filter nodes matching search
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId)
+  const callerNames = new Set(
+    (selectedNode?.calledBy || []).map((c: any) => (typeof c === 'string' ? c : c))
+  )
+  const calleeNames = new Set(
+    (selectedNode?.calls || []).map((c: any) => (typeof c === 'string' ? c : c.functionName))
+  )
+
+  const isCaller = (fnName: string) => callerNames.has(fnName)
+  const isCallee = (fnName: string) => calleeNames.has(fnName)
+  const isRelated = (n: any) => {
+    if (!selectedNodeId) return true
+    if (n.id === selectedNodeId) return true
+    return isCaller(n.functionName) || isCallee(n.functionName)
+  }
+
+  // Filter nodes matching search & filter
   const matchedNodeIds = new Set(
     nodes
-      .filter((n) => !searchQuery || n.functionName.toLowerCase().includes(searchQuery.toLowerCase()))
+      .filter((n) => {
+        if (filterIssueOnly && !n.hasIssue) return false
+        if (searchQuery && !n.functionName.toLowerCase().includes(searchQuery.toLowerCase())) return false
+        return true
+      })
       .map((n) => n.id)
   )
 
@@ -86,6 +107,30 @@ export function GraphReview({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Filter issues toggle */}
+          <button
+            type="button"
+            onClick={() => setFilterIssueOnly((f) => !f)}
+            className={`rounded-md px-2.5 py-1 text-[11px] font-semibold border transition-all ${
+              filterIssueOnly
+                ? 'border-rose-500/50 bg-rose-500/20 text-rose-300'
+                : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {filterIssueOnly ? 'Đang lọc: Chỉ lỗi' : 'Tất cả hàm'}
+          </button>
+          {/* Filter issues toggle */}
+          <button
+            type="button"
+            onClick={() => setFilterIssueOnly((f) => !f)}
+            className={`rounded-md px-2.5 py-1 text-[11px] font-semibold border transition-all ${
+              filterIssueOnly
+                ? 'border-rose-500/50 bg-rose-500/20 text-rose-300'
+                : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {filterIssueOnly ? 'Đang lọc: Chỉ lỗi' : 'Tất cả hàm'}
+          </button>
           {/* Search bar */}
           <div className="relative flex items-center">
             <IconSearch className="absolute left-2.5 size-3.5 text-muted-foreground" />
@@ -279,6 +324,9 @@ export function GraphReview({
             const pos = nodePositions[node.id] || { x: 100, y: 100, width: 120, height: 40 }
             const isSelected = node.id === selectedNodeId
             const isMatched = matchedNodeIds.has(node.id)
+            const caller = isCaller(node.functionName)
+            const callee = isCallee(node.functionName)
+            const related = isRelated(node)
 
             if (node.isExternal) {
               return (
@@ -329,15 +377,19 @@ export function GraphReview({
                   width={pos.width}
                   height={pos.height}
                   rx={6}
-                  className={`transition-colors ${
+                  className={`transition-all ${
                     isSelected
-                      ? 'fill-[#132238] stroke-cyan-400 stroke-[2px] shadow-[0_0_16px_rgba(34,211,238,0.4)]'
+                      ? 'fill-[#132238] stroke-cyan-400 stroke-[2.5px] shadow-[0_0_16px_rgba(34,211,238,0.5)]'
+                      : caller
+                      ? 'fill-[#1c1a2e] stroke-amber-400 stroke-[2px]'
+                      : callee
+                      ? 'fill-[#102422] stroke-emerald-400 stroke-[2px]'
                       : node.hasIssue
                       ? 'fill-[#121c2e] stroke-rose-500/80 stroke-[1.5px]'
                       : isMatched
                       ? 'fill-[#0f192b] stroke-border hover:stroke-cyan-500/50'
                       : 'fill-[#0f192b]/40 stroke-border/30 opacity-40'
-                  }`}
+                  } ${!related ? 'opacity-35' : 'opacity-100'}`}
                 />
 
                 {/* Left vertical indicator */}

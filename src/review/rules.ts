@@ -264,6 +264,103 @@ export function runRules(files: ScannedFile[], astResult: AstAnalysisResult): Fi
         }
       }
 
+      // 7. Security: Hardcoded Secrets
+      let secretPropName = '';
+      let secretValNode: ts.Node | undefined;
+      let secretPos = 0;
+
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+        secretPropName = node.name.text;
+        secretValNode = node.initializer;
+        secretPos = node.getStart(sourceFile!);
+      } else if (ts.isPropertyAssignment(node) && node.initializer) {
+        secretPropName = node.name.getText(sourceFile!);
+        secretValNode = node.initializer;
+        secretPos = node.getStart(sourceFile!);
+      }
+
+      if (secretValNode && ts.isStringLiteral(secretValNode)) {
+        const val = secretValNode.text;
+        const isSecretName = /(?:password|passwd|secret|api_?key|access_?token|auth_?token|private_?key)/i.test(secretPropName);
+        const isPlaceholder = /^(?:none|mock|dummy|test|xxx|localhost|TODO|CHANGEME|<.*>|\*+)$/i.test(val);
+        if (isSecretName && !isPlaceholder && val.length >= 8) {
+          const line = sourceFile!.getLineAndCharacterOfPosition(secretPos).line + 1;
+          const evidence = lines[line - 1]?.trim() || `${secretPropName} = '***'`;
+          findings.push({
+            id: nextId('sec-secret'),
+            ruleId: 'SEC_HARDCODED_SECRET',
+            category: 'security',
+            severity: 'critical',
+            title: `Lộ bí mật hoặc token gán cứng trong mã nguồn ('${secretPropName}')`,
+            filePath: file.relativePath,
+            line,
+            endLine: line,
+            nodeId: getEnclosingFunctionId(secretPos),
+            evidence,
+            explanation: `Thuộc tính hoặc biến '${secretPropName}' chứa giá trị khóa bí mật / mật khẩu thô dạng chuỗi gán trực tiếp trong mã nguồn. Việc lưu trữ secret trong source code đối mặt nguy cơ lộ lọt nghiêm trọng khi chia sẻ mã nguồn.`,
+            suggestion: `Chuyển sang đọc giá trị từ biến môi trường (ví dụ: process.env.${secretPropName.toUpperCase()}) hoặc giải pháp quản lý Secret Vault.`,
+            source: 'rule',
+            confidence: 'certain',
+            confidenceReason: `Phát hiện định danh mang ý nghĩa secret gán chuỗi literal cố định có độ dài >= 8 ký tự.`,
+          });
+        }
+      }
+
+      // 8. Bug: Loose Equality Comparison (== or !=)
+      if (ts.isBinaryExpression(node)) {
+        const op = node.operatorToken.kind;
+        if (op === ts.SyntaxKind.EqualsEqualsToken || op === ts.SyntaxKind.ExclamationEqualsToken) {
+          const opStr = op === ts.SyntaxKind.EqualsEqualsToken ? '==' : '!=';
+          const line = sourceFile!.getLineAndCharacterOfPosition(node.getStart(sourceFile!)).line + 1;
+          const evidence = lines[line - 1]?.trim() || node.getText(sourceFile!);
+          findings.push({
+            id: nextId('bug-loose-eq'),
+            ruleId: 'BUG_LOOSE_EQUALITY',
+            category: 'bug',
+            severity: 'medium',
+            title: `Sử dụng phép so sánh lỏng lẻo '${opStr}' thay vì '${opStr}='`,
+            filePath: file.relativePath,
+            line,
+            endLine: line,
+            nodeId: getEnclosingFunctionId(node.getStart(sourceFile!)),
+            evidence,
+            explanation: `Toán tử so sánh '${opStr}' thực hiện ép kiểu ngầm định (type coercion), có thể sinh ra kết quả sai lệch ngoài mong đợi khi so sánh các kiểu dữ liệu khác nhau.`,
+            suggestion: `Sử dụng toán tử so sánh nghiêm ngặt '${opStr}=' để kiểm tra chính xác cả kiểu và giá trị.`,
+            source: 'rule',
+            confidence: 'certain',
+            confidenceReason: `Phát hiện toán tử so sánh lỏng lẻo '${opStr}' trong biểu thức điều kiện AST.`,
+          });
+        }
+      }
+
+      // 9. Style: Var Keyword Usage
+      if (ts.isVariableStatement(node)) {
+        const flags = node.declarationList.flags;
+        const isLet = Boolean(flags & ts.NodeFlags.Let);
+        const isConst = Boolean(flags & ts.NodeFlags.Const);
+        if (!isLet && !isConst) {
+          const line = sourceFile!.getLineAndCharacterOfPosition(node.getStart(sourceFile!)).line + 1;
+          const evidence = lines[line - 1]?.trim() || node.getText(sourceFile!);
+          findings.push({
+            id: nextId('style-var'),
+            ruleId: 'STYLE_VAR_KEYWORD',
+            category: 'style',
+            severity: 'low',
+            title: `Sử dụng từ khóa khai báo 'var' lỗi thời`,
+            filePath: file.relativePath,
+            line,
+            endLine: line,
+            nodeId: getEnclosingFunctionId(node.getStart(sourceFile!)),
+            evidence,
+            explanation: `Từ khóa 'var' có cơ chế hoisting và phạm vi hàm (function-scope), dễ dẫn đến rò rỉ biến ngoài khối lệnh và khó kiểm soát trạng thái.`,
+            suggestion: `Thay thế 'var' bằng 'const' (nếu biến không gán lại) hoặc 'let' (nếu cần thay đổi giá trị) theo chuẩn ES6+.`,
+            source: 'rule',
+            confidence: 'certain',
+            confidenceReason: `Phát hiện khai báo VariableDeclarationList không có flag let hoặc const.`,
+          });
+        }
+      }
+
       ts.forEachChild(node, visit);
     }
 

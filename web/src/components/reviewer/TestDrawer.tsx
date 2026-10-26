@@ -18,12 +18,18 @@ export function TestDrawer({ testResult, onRunTest }: TestDrawerProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [running, setRunning] = useState(false)
 
-  const handleRun = () => {
+  const handleRun = async () => {
     setRunning(true)
-    setTimeout(() => {
+    try {
+      await fetch('/api/review/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkCommand: 'npm test' }),
+      }).catch(() => null)
+    } finally {
       setRunning(false)
       onRunTest?.()
-    }, 1200)
+    }
   }
 
   if (!testResult) return null

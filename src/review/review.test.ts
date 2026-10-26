@@ -65,4 +65,44 @@ describe('Review Engine Full Lifecycle', () => {
       writeFileSync(authPath, origAuth, 'utf8');
     }
   });
+
+  it('detects hardcoded secret, loose equality, and var keyword', async () => {
+    const { buildAstGraph } = await import('./ast.js');
+    const { runRules } = await import('./rules.js');
+
+    const sampleFiles = [
+      {
+        path: '/mock/app.js',
+        absolutePath: '/mock/app.js',
+        relativePath: 'src/app.js',
+        size: 120,
+        content: `
+var apiKey = "sk_live_1234567890abcdef";
+function verifyToken(userRole) {
+  if (userRole == "admin") {
+    eval("console.log('authorized')");
+  }
+}
+`,
+      },
+    ];
+
+    const ast = buildAstGraph(sampleFiles);
+    const findings = runRules(sampleFiles, ast);
+
+    const secretFind = findings.find(f => f.ruleId === 'SEC_HARDCODED_SECRET');
+    expect(secretFind).toBeDefined();
+    expect(secretFind?.severity).toBe('critical');
+
+    const looseEqFind = findings.find(f => f.ruleId === 'BUG_LOOSE_EQUALITY');
+    expect(looseEqFind).toBeDefined();
+    expect(looseEqFind?.severity).toBe('medium');
+
+    const varFind = findings.find(f => f.ruleId === 'STYLE_VAR_KEYWORD');
+    expect(varFind).toBeDefined();
+    expect(varFind?.severity).toBe('low');
+
+    const evalFind = findings.find(f => f.ruleId === 'SEC_DANGEROUS_EVAL');
+    expect(evalFind).toBeDefined();
+  });
 });

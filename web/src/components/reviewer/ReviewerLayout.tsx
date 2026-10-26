@@ -36,28 +36,28 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data && data.nodes && data.findings && data.findings.length > 0) {
-          const adaptedNodes = data.nodes.map((n) => ({
+          const adaptedNodes = (data.nodes as any[]).map((n: any) => ({
             id: n.id,
             file: n.filePath?.split(/[\\/]/).pop() || n.filePath || 'file',
             functionName: n.name,
             startLine: n.startLine,
             endLine: n.endLine,
             language: 'JavaScript/TypeScript',
-            hasIssue: data.findings.some((fi) => fi.nodeId === n.id || (fi.filePath === n.filePath && fi.line >= n.startLine && fi.line <= n.endLine)),
-            issueCount: data.findings.filter((fi) => fi.nodeId === n.id || (fi.filePath === n.filePath && fi.line >= n.startLine && fi.line <= n.endLine)).length,
-            calledBy: (n.callerIds || []).map((cid) => cid.split(':').pop() || cid),
-            calls: (n.calleeIds || []).map((cid) => ({ functionName: cid.split(':').pop() || cid, file: cid.split(':')[1] || cid })),
+            hasIssue: (data.findings as any[]).some((fi: any) => fi.nodeId === n.id || (fi.filePath === n.filePath && fi.line >= n.startLine && fi.line <= n.endLine)),
+            issueCount: (data.findings as any[]).filter((fi: any) => fi.nodeId === n.id || (fi.filePath === n.filePath && fi.line >= n.startLine && fi.line <= n.endLine)).length,
+            calledBy: ((n.callerIds || []) as any[]).map((cid: any) => String(cid).split(':').pop() || String(cid)),
+            calls: ((n.calleeIds || []) as any[]).map((cid: any) => ({ functionName: String(cid).split(':').pop() || String(cid), file: String(cid).split(':')[1] || String(cid) })),
           }))
 
-          const adaptedEdges = data.edges.map((e) => ({
+          const adaptedEdges = (data.edges as any[]).map((e: any) => ({
             id: e.id,
             sourceNodeId: e.sourceId,
             targetNodeId: e.targetId,
-            type: e.type === 'call' ? 'call' : 'cross_file',
+            type: e.type === 'call' ? ('call' as const) : ('cross_file' as const),
             label: e.evidenceSnippet ? e.evidenceSnippet.slice(0, 30) : undefined,
           }))
 
-          const adaptedFindings = data.findings.map((f) => ({
+          const adaptedFindings = (data.findings as any[]).map((f: any) => ({
             id: f.id,
             file: f.filePath?.split(/[\\/]/).pop() || f.filePath,
             line: f.line,
@@ -76,13 +76,13 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
               diffText: `--- a/${f.filePath}\n+++ b/${f.filePath}\n@@ -${f.line},1 +${f.line},1 @@\n-${f.evidence}\n+${f.suggestion}`,
             },
             source: f.source || 'rule',
-            status: 'open',
+            status: 'open' as const,
           }))
 
-          const uniqueFiles = Array.from(new Set(data.scanScope?.filesRead || []))
-          const adaptedFiles = uniqueFiles.map((fp) => {
+          const uniqueFiles = Array.from(new Set((data.scanScope?.filesRead || []) as string[]))
+          const adaptedFiles = uniqueFiles.map((fp: string) => {
             const fileName = fp.split(/[\\/]/).pop() || fp
-            const issueCount = adaptedFindings.filter((af) => af.file === fileName || af.file.endsWith(fileName)).length
+            const issueCount = adaptedFindings.filter((af: any) => af.file === fileName || af.file.endsWith(fileName)).length
             return {
               name: fileName,
               lineCount: 25,

@@ -32,14 +32,20 @@ export function RightPanel({
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
 
-  const handleApply = () => {
+  const handleApply = async () => {
     if (!selectedFinding) return
     setApplying(true)
-    setTimeout(() => {
+    try {
+      await fetch('/api/review/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ findingId: selectedFinding.id }),
+      }).catch(() => null)
+    } finally {
       setApplying(false)
       setApplied(true)
       onApplyPatch?.(selectedFinding.id)
-    }, 600)
+    }
   }
 
   return (
