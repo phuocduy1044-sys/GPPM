@@ -1,0 +1,391 @@
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * shadcn/ui tokens, taken from the terminal UI's pale palette (src/ui/theme.ts
+ * and src/ui/markdown.ts) so `viecodie web` and the TUI read as one product:
+ * slate panels, off-white prose, dusty blue as the one accent, and sage /
+ * rose / butter / sea glass / lavender for meaning.
+ *
+ * Dark is the TUI as-is. Light keeps the same hues, deepened until they hold
+ * contrast on white — the terminal pastels wash out on a light background.
+ */
+:root {
+  color-scheme: dark;
+  --radius: 0.75rem;
+  --background: #11141a;           /* Soft comfortable dark charcoal */
+  --foreground: #f1f3f7;           /* Crisp clean off-white */
+  --card: #181c25;                 /* Soft elevated slate surface */
+  --card-foreground: #f1f3f7;
+  --popover: #1c212c;
+  --popover-foreground: #f1f3f7;
+  --primary: #3b82f6;              /* Electric Cobalt */
+  --primary-foreground: #ffffff;
+  --secondary: #1e232f;            /* User message panel fill */
+  --secondary-foreground: #f1f3f7;
+  --muted: #181d27;
+  --muted-foreground: #98a2b3;     /* Clear readable silver-slate */
+  --accent: #232938;               /* Gentle hover highlight */
+  --accent-foreground: #ffffff;
+  --destructive: #f43f5e;          /* Crimson rose */
+  --destructive-foreground: #ffffff;
+  --border: #282f3e;               /* Crisp comfortable slate border */
+  --input: #202532;
+  --ring: #3b82f6;
+  --sidebar: #0d0f14;              /* Deep spatial sidebar */
+  --sidebar-foreground: #f1f3f7;
+  --sidebar-accent: #171b23;
+  --sidebar-border: #222733;
+  --code: #131720;                 /* Deep readable code background */
+  --code-foreground: #60a5fa;      /* Vibrant code accent */
+  --quote: #98a2b3;
+  --diff-add: #10281b;             /* Subtle dark forest */
+  --diff-add-fg: #4ade80;          /* Crisp mint */
+  --diff-del: #2f1217;             /* Subtle dark wine */
+  --diff-del-fg: #fb7185;          /* Crisp rose */
+  --success: #34d399;              /* Emerald mint */
+  --warning: #fbbf24;              /* Amber gold */
+  --plan: #38bdf8;                 /* Sky cyan */
+  --user-rule: #3b82f6;
+  --hl-keyword: #c084fc;           /* Electric lavender */
+  --hl-string: #4ade80;            /* Mint */
+  --hl-number: #fbbf24;            /* Amber */
+  --hl-title: #60a5fa;             /* Cobalt */
+  --hl-type: #38bdf8;              /* Cyan */
+  --hl-comment: #64748b;           /* Slate */
+  --elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  --elevation-2: 0 6px 20px -2px rgba(0, 0, 0, 0.55), 0 2px 6px -1px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  --elevation-3: 0 20px 48px -4px rgba(0, 0, 0, 0.7), 0 8px 20px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+}
+
+.dark {
+  color-scheme: dark;
+  --radius: 0.75rem;
+  --background: #11141a;
+  --foreground: #f1f3f7;
+  --card: #181c25;
+  --card-foreground: #f1f3f7;
+  --popover: #1c212c;
+  --popover-foreground: #f1f3f7;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #1e232f;
+  --secondary-foreground: #f1f3f7;
+  --muted: #181d27;
+  --muted-foreground: #98a2b3;
+  --accent: #232938;
+  --accent-foreground: #ffffff;
+  --destructive: #f43f5e;
+  --destructive-foreground: #ffffff;
+  --border: #282f3e;
+  --input: #202532;
+  --ring: #3b82f6;
+  --sidebar: #0d0f14;
+  --sidebar-foreground: #f1f3f7;
+  --sidebar-accent: #171b23;
+  --sidebar-border: #222733;
+  --code: #131720;
+  --code-foreground: #60a5fa;
+  --quote: #98a2b3;
+  --diff-add: #10281b;
+  --diff-add-fg: #4ade80;
+  --diff-del: #2f1217;
+  --diff-del-fg: #fb7185;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --plan: #38bdf8;
+  --user-rule: #3b82f6;
+  --hl-keyword: #c084fc;
+  --hl-string: #4ade80;
+  --hl-number: #fbbf24;
+  --hl-title: #60a5fa;
+  --hl-type: #38bdf8;
+  --hl-comment: #64748b;
+  --elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  --elevation-2: 0 6px 20px -2px rgba(0, 0, 0, 0.55), 0 2px 6px -1px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  --elevation-3: 0 20px 48px -4px rgba(0, 0, 0, 0.7), 0 8px 20px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-code: var(--code);
+  --color-diff-add: var(--diff-add);
+  --color-diff-add-fg: var(--diff-add-fg);
+  --color-diff-del: var(--diff-del);
+  --color-diff-del-fg: var(--diff-del-fg);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-plan: var(--plan);
+  --color-user-rule: var(--user-rule);
+  --shadow-3d-1: var(--elevation-1);
+  --shadow-3d-2: var(--elevation-2);
+  --shadow-3d-3: var(--elevation-3);
+  --font-sans: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  html {
+    font-size: 14px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  html, body, #root { @apply h-full; }
+  body { @apply bg-background text-foreground antialiased; font-family: var(--font-sans); font-feature-settings: "ss01"; }
+  ::selection {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+  input, textarea {
+    caret-color: var(--primary);
+  }
+}
+
+/* Model output. Kept as plain CSS: it styles markdown we don't control the markup of. */
+.prose-viecodie { overflow-wrap: anywhere; line-height: 1.65; }
+.prose-viecodie > :first-child { margin-top: 0; }
+.prose-viecodie > :last-child { margin-bottom: 0; }
+.prose-viecodie :where(p, ul, ol, blockquote, table) { margin: 0 0 0.8em; }
+.prose-viecodie :where(h1, h2, h3, h4) { margin: 1.2em 0 0.5em; line-height: 1.3; font-weight: 650; }
+.prose-viecodie h1 { font-size: 1.35em; }
+.prose-viecodie h2 { font-size: 1.2em; }
+.prose-viecodie h3 { font-size: 1.05em; }
+.prose-viecodie :where(ul, ol) { padding-left: 1.4em; }
+.prose-viecodie ul { list-style: disc; }
+.prose-viecodie ol { list-style: decimal; }
+.prose-viecodie li + li { margin-top: 0.2em; }
+.prose-viecodie a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.prose-viecodie :not(pre) > code { color: var(--code-foreground); background: var(--code); border: 1px solid var(--border); border-radius: 5px; padding: 0.05em 0.35em; font-size: 0.88em; font-family: var(--font-mono); }
+.prose-viecodie blockquote { border-left: 2px solid var(--border); padding-left: 0.8em; color: var(--quote); font-style: italic; }
+.prose-viecodie table { border-collapse: collapse; display: block; overflow-x: auto; }
+.prose-viecodie :where(th, td) { border: 1px solid var(--border); padding: 0.3em 0.7em; text-align: left; }
+.prose-viecodie hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
+.prose-viecodie input[type="checkbox"] { margin-right: 0.4em; }
+
+.is-streaming > :last-child::after, .is-streaming:empty::after { content: "▍"; color: var(--muted-foreground); animation: blink 1s steps(2) infinite; margin-left: 1px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* The working label, with a band of light sweeping across it — the web twin of the TUI's shimmer. */
+.shimmer {
+  background: linear-gradient(90deg, var(--muted-foreground) 40%, var(--warning) 50%, var(--muted-foreground) 60%) 0 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .shimmer { animation: none; color: var(--muted-foreground); } }
+
+/* highlight.js classes. Diff lines keep their add/remove tint; tokens only recolor the text. */
+.hljs :is(.hljs-keyword, .hljs-built_in, .hljs-selector-tag, .hljs-doctag, .hljs-meta .hljs-keyword) { color: var(--hl-keyword); }
+.hljs :is(.hljs-string, .hljs-regexp, .hljs-template-tag, .hljs-addition, .hljs-selector-attr) { color: var(--hl-string); }
+.hljs :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-variable.constant_, .hljs-bullet) { color: var(--hl-number); }
+.hljs :is(.hljs-title, .hljs-section, .hljs-selector-id, .hljs-selector-class, .hljs-name) { color: var(--hl-title); }
+.hljs :is(.hljs-type, .hljs-attr, .hljs-attribute, .hljs-property, .hljs-params .hljs-type) { color: var(--hl-type); }
+.hljs :is(.hljs-comment, .hljs-quote, .hljs-meta) { color: var(--hl-comment); font-style: italic; }
+.hljs .hljs-deletion { color: var(--diff-del-fg); }
+.hljs .hljs-emphasis { font-style: italic; }
+.hljs .hljs-strong { font-weight: 600; }
+
+
+/* SweetAlert2 Modern Tactile 3D Theme */
+div:where(.swal2-container) {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background-color: rgba(0, 0, 0, 0.6) !important;
+  font-family: var(--font-sans) !important;
+  z-index: 10000 !important;
+}
+
+div:where(.swal2-container) .swal2-popup.swal-popup-3d {
+  background: var(--card) !important;
+  color: var(--foreground) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 1rem !important;
+  box-shadow: var(--shadow-3d-2) !important;
+  padding: 1.5rem !important;
+  width: 26rem !important;
+  max-width: calc(100vw - 2rem) !important;
+  font-family: var(--font-sans) !important;
+}
+
+div:where(.swal2-container) .swal2-title.swal-title-custom {
+  color: var(--foreground) !important;
+  font-size: 1.125rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+  padding: 0.25rem 0 0 !important;
+  font-family: var(--font-sans) !important;
+}
+
+div:where(.swal2-container) .swal2-html-container.swal-html-custom {
+  color: var(--muted-foreground) !important;
+  font-size: 0.875rem !important;
+  line-height: 1.5 !important;
+  margin: 0.5rem 0 0 !important;
+  padding: 0 !important;
+  font-family: var(--font-sans) !important;
+}
+
+div:where(.swal2-container) .swal-body-text {
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+div:where(.swal2-container) .swal-highlight {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+div:where(.swal2-container) .swal-sub-text {
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+div:where(.swal2-container) .swal-files-box {
+  margin-top: 0.75rem;
+  text-align: left;
+  border-radius: 0.5rem;
+  background-color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 0.625rem 0.75rem;
+}
+
+div:where(.swal2-container) .swal-files-title {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--foreground);
+  margin-bottom: 0.25rem;
+}
+
+div:where(.swal2-container) .swal-files-list {
+  list-style-type: disc;
+  list-style-position: inside;
+  color: var(--muted-foreground);
+  margin: 0;
+  padding: 0;
+}
+
+div:where(.swal2-container) .swal2-actions.swal-actions-custom {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 0.5rem !important;
+  margin-top: 1.25rem !important;
+  width: 100% !important;
+}
+
+div:where(.swal2-container) .swal-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  border-radius: 0.5rem !important;
+  padding: 0.45rem 0.95rem !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  font-family: var(--font-sans) !important;
+  box-shadow: var(--shadow-3d-1) !important;
+  border: none !important;
+}
+
+div:where(.swal2-container) .swal-btn-confirm {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+}
+
+div:where(.swal2-container) .swal-btn-confirm:hover {
+  opacity: 0.9 !important;
+  transform: translateY(-1px) !important;
+}
+
+div:where(.swal2-container) .swal-btn-destructive {
+  background-color: var(--destructive) !important;
+  color: var(--destructive-foreground) !important;
+}
+
+div:where(.swal2-container) .swal-btn-destructive:hover {
+  opacity: 0.9 !important;
+  transform: translateY(-1px) !important;
+}
+
+div:where(.swal2-container) .swal-btn-cancel {
+  background-color: var(--secondary) !important;
+  color: var(--secondary-foreground) !important;
+  border: 1px solid var(--border) !important;
+}
+
+div:where(.swal2-container) .swal-btn-cancel:hover {
+  background-color: var(--accent) !important;
+  transform: translateY(-1px) !important;
+}
+
+div:where(.swal2-container) .swal2-icon {
+  margin: 0.25rem auto 0.75rem !important;
+  transform: scale(0.75) !important;
+  border-width: 2.5px !important;
+}
+
+div:where(.swal2-container) .swal2-icon.swal2-warning {
+  border-color: var(--warning) !important;
+  color: var(--warning) !important;
+}
+
+div:where(.swal2-container) .swal2-icon.swal2-warning .swal2-icon-content {
+  color: var(--warning) !important;
+}
+
+div:where(.swal2-container) .swal2-icon.swal2-error {
+  border-color: var(--destructive) !important;
+  color: var(--destructive) !important;
+}
+
+div:where(.swal2-container) .swal2-icon.swal2-question {
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+}
+
+div:where(.swal2-container) .swal2-icon.swal2-success {
+  border-color: var(--success) !important;
+  color: var(--success) !important;
+}
+
+div:where(.swal2-container) .swal2-success-fix,
+div:where(.swal2-container) [class^=swal2-success-circular-line] {
+  background-color: var(--card) !important;
+}

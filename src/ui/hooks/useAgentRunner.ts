@@ -1,0 +1,520 @@
+/**
+ * useAgentRunner — drives the agent loop for a single user turn.
+ *
+ * Owns all streaming state (thinking, streaming, tool activity) and
+ * exposes `sendMessage` + `askPermission` to the caller.
+ */
+import { useState, useRef } from 'react'
+import { runAgent } from '../../agent/loop.js'
+import { HookBus } from '../../hooks/bus.js'
+import { checkpointPreToolHook, snapshotForTurn } from '../../session/checkpoint.js'
+import { compactHistory, estimateHistoryTokens, CHARS_PER_TOKEN } from '../../agent/compact.js'
+import type { ChatMessage, PermissionRequest, PermissionAnswer, ToolUseDisplay, ToolResultDisplay } from '../types.js'
+import { TurnSummaryBuilder } from '../turnSummary.js'
+import { isHiddenTool } from '../mergeSteps.js'
+import type { MiiMessage } from '../../agent/types.js'
+import { DEFAULT_PERMISSION_MODE, MODE_HINT, MODE_LABEL, nextMode, type PermissionMode } from '../../permissions/policy.js'
+import { describeTool } from '../toolLabel.js'
+import { stoppedLine } from '../layout.js'
+import { THINKING_LABEL, WRITING_LABEL } from '../constants.js'
+
+// How often (ms) we flush streaming text to React state — avoids a re-render per token.
+const FLUSH_MS = 100
+
+export interface SessionTotals {
+  /** Prompt tokens billed across every turn this session — not the live window. */
+  input: number
+  output: number
+  turns: number
+  /** Wall-clock ms spent inside the agent loop, excluding your thinking time. */
+  ms: number
+}
+
+export function useAgentRunner(
+  model: string | undefined,
+  activeCtx: number | null,
+  sessionId: string,
+) {
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [thinking, setThinking] = useState(false)
+  /** When the running turn (or compaction) began — the status line's clock. */
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  /** Output tokens streamed so far this turn, across every step — an estimate. */
+  const [turnTokens, setTurnTokens] = useState(0)
+  /**
+   * Messages typed while a turn runs. Text-only ones are handed to the model at
+   * the next tool boundary (see takeSteering); whatever is still here when the
+   * turn ends is sent as the next turn. The ref is the queue, the state is what
+   * the input area shows as waiting.
+   */
+  const queueRef = useRef<Array<{ text: string; images?: string[] }>>([])
+  const [queued, setQueued] = useState<string[]>([])
+  const syncQueued = () => setQueued(queueRef.current.map((q) => q.text))
+  const [streaming, setStreaming] = useState(false)
+  const [streamingContent, setStreamingContent] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [processingLabel, setProcessingLabel] = useState<string | undefined>(undefined)
+  const [agentHistory, setAgentHistory] = useState<MiiMessage[]>([])
+  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
+  const [permissionCursor, setPermissionCursor] = useState(0)
+  const [activeToolUses, setActiveToolUses] = useState<ToolUseDisplay[]>([])
+  const [activeToolResults, setActiveToolResults] = useState<ToolResultDisplay[]>([])
+  /**
+   * Prompt+eval tokens the model reported for the last turn — i.e. how full the
+   * context is right now. Kept as state rather than derived from the transcript
+   * so compaction can correct it immediately; a stale reading there would have
+   * the auto-compact trigger fire again the moment it finished.
+   */
+  const [usedTokens, setUsedTokens] = useState(0)
+  const [compacting, setCompacting] = useState(false)
+  /**
+   * Permission mode. Held here rather than in App because the loop can change
+   * it mid-run (the user approving a plan), and this is where that event lands.
+   */
+  const [mode, setModeState] = useState<PermissionMode>(DEFAULT_PERMISSION_MODE)
+  /**
+   * Cumulative cost of the session, which `usedTokens` deliberately is not:
+   * that one is "how full is the window right now" and drops when the history
+   * is compacted. This only ever goes up, because the tokens were spent.
+   */
+  const [totals, setTotals] = useState<SessionTotals>({ input: 0, output: 0, turns: 0, ms: 0 })
+
+  /**
+   * One hook bus per session. Shell hooks are read from settings on every fire,
+   * so this does not need rebuilding when settings change — but the checkpoint
+   * listener must be registered exactly once, which a ref guarantees and a
+   * render-time construction would not.
+   */
+  const hooksRef = useRef<HookBus | null>(null)
+  const hookSessionRef = useRef<string | null>(null)
+  if (hooksRef.current === null || hookSessionRef.current !== sessionId) {
+    const bus = new HookBus({ id: sessionId, cwd: process.cwd() })
+    bus.onPreTool((use) => checkpointPreToolHook(use))
+    hooksRef.current = bus
+    hookSessionRef.current = sessionId
+  }
+
+  const busyRef = useRef(false)
+  /**
+   * Mirror of `mode` for the async send path. `sendMessage` captures the mode
+   * at the moment it starts; reading the ref means a run always begins from the
+   * mode the user can currently see, not one a render behind.
+   */
+  const modeRef = useRef<PermissionMode>(mode)
+  modeRef.current = mode
+  const abortRef = useRef<AbortController | null>(null)
+  const pendingPermissionRef = useRef<PermissionRequest | null>(null)
+
+  /** Set the permission mode and describe the change in the transcript. */
+  function setMode(next: PermissionMode) {
+    modeRef.current = next
+    setModeState(next)
+    return next
+  }
+
+  /**
+   * shift+tab — step to the next mode, returning it so the caller can say so.
+   * The notice belongs to App, which owns that strip of the screen.
+   */
+  function cycleMode(): PermissionMode {
+    return setMode(nextMode(modeRef.current))
+  }
+
+  /** Prompt the UI for a permission decision and await the user's choice. */
+  function askPermission(toolName: string, input: unknown): Promise<PermissionAnswer> {
+    return new Promise((resolve) => {
+      const req: PermissionRequest = { toolName, input, resolve }
+      pendingPermissionRef.current = req
+      setPermissionCursor(0)
+      setPendingPermission(req)
+    })
+  }
+
+  /** Resolve the currently pending permission prompt. */
+  function resolvePermission(cursor: number) {
+    const req = pendingPermissionRef.current
+    if (!req) return
+    const answers: PermissionAnswer[] = ['yes', 'always', 'no']
+    pendingPermissionRef.current = null
+    setPendingPermission(null)
+    req.resolve(answers[cursor])
+  }
+
+  /**
+   * Answer a pending prompt with 'no' without the user picking an option — used
+   * when they cancel the whole turn instead. Aborting the run alone would leave
+   * this promise unsettled, and the agent loop parks on it forever: the turn
+   * never finishes, `busy` never clears, and the input stays locked.
+   */
+  function cancelPermission() {
+    const req = pendingPermissionRef.current
+    if (!req) return
+    pendingPermissionRef.current = null
+    setPendingPermission(null)
+    req.resolve('no')
+  }
+
+  /** Hand the model the queued text-only messages; ones with images wait for the next turn. */
+  function takeSteering(): string[] {
+    const taken = queueRef.current.filter((q) => !q.images?.length)
+    if (!taken.length) return []
+    queueRef.current = queueRef.current.filter((q) => q.images?.length)
+    syncQueued()
+    return taken.map((q) => q.text)
+  }
+
+  /**
+   * Empty the queue and return its text — for esc, which cancels the turn and
+   * hands the unsent messages back to the input rather than firing them off.
+   */
+  function takeQueue(): string {
+    const text = queueRef.current.map((q) => q.text).join('\n\n')
+    queueRef.current = []
+    syncQueued()
+    return text
+  }
+
+  async function sendMessage(text: string, images?: string[]) {
+    if (!model) return
+    if (busyRef.current) {
+      queueRef.current.push({ text, images })
+      syncQueued()
+      return
+    }
+    busyRef.current = true
+    setBusy(true)
+    setProcessingLabel(THINKING_LABEL)
+    setStartedAt(Date.now())
+    setTurnTokens(0)
+    setError(null)
+
+    setMessages((prev) => [...prev, { role: 'user', content: text }])
+    setThinking(true)
+
+    let accumulated = ''
+    let thinkingAcc = ''
+    let firstToken = true
+    // Characters the model has written this turn, thoughts included — the step
+    // buffers above reset on every tool call, this runs for the whole turn.
+    let outChars = 0
+
+    // Throttled setters — batch token-level deltas into periodic React updates.
+    let streamFlushAt = 0
+    let thinkFlushAt = 0
+    const flushStream = (force = false) => {
+      const now = Date.now()
+      if (force || now - streamFlushAt >= FLUSH_MS) {
+        streamFlushAt = now
+        setStreamingContent(accumulated)
+        setTurnTokens(Math.ceil(outChars / CHARS_PER_TOKEN))
+      }
+    }
+    const flushThink = (force = false) => {
+      const now = Date.now()
+      if (force || now - thinkFlushAt >= FLUSH_MS) {
+        thinkFlushAt = now
+        setTurnTokens(Math.ceil(outChars / CHARS_PER_TOKEN))
+      }
+    }
+
+    let turnUses: ToolUseDisplay[] = []
+    let turnResults: ToolResultDisplay[] = []
+    const startTime = Date.now()
+    // Turn-wide, unlike turnUses/turnResults which reset with every step.
+    const summary = new TurnSummaryBuilder()
+    const usesById = new Map<string, ToolUseDisplay>()
+
+    /** Commit accumulated text + tool activity as a finished assistant message. */
+    const flushTurn = (final: { prompt: number; eval: number } | null, stopped = false) => {
+      const msg: ChatMessage = {
+        role: 'assistant',
+        content: accumulated,
+        thinking: thinkingAcc.trim() ? thinkingAcc : undefined,
+        tool_uses: turnUses.length ? turnUses : undefined,
+        tool_results: turnResults.length ? turnResults : undefined,
+      }
+      if (final) {
+        msg.tokens = { prompt_eval: final.prompt, eval: final.eval }
+        msg.duration = Date.now() - startTime
+        msg.summary = summary.build()
+        if (stopped) msg.summary.stopped = true
+      }
+      setMessages((prev) => [...prev, msg])
+      accumulated = ''
+      thinkingAcc = ''
+      turnUses = []
+      turnResults = []
+      setStreamingContent('')
+      setActiveToolUses([])
+      setActiveToolResults([])
+    }
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    // Open a checkpoint boundary for this turn before any tool can run, so the
+    // files a tool is about to change are filed under the right turn.
+    snapshotForTurn(sessionId, agentHistory.length)
+
+    try {
+      const gen = runAgent({
+        model,
+        cwd: process.cwd(),
+        history: agentHistory,
+        userText: text,
+        images,
+        permissions: { ask: askPermission },
+        mode: modeRef.current,
+        hooks: hooksRef.current ?? undefined,
+        signal: controller.signal,
+        num_ctx: activeCtx ?? undefined,
+        takeSteering,
+      })
+
+      let finalTokens = { prompt: 0, eval: 0 }
+      let result: IteratorResult<typeof gen extends AsyncGenerator<infer E, any> ? E : never, MiiMessage[]>
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        result = (await gen.next()) as typeof result
+        if (result.done) { setAgentHistory(result.value); break }
+
+        const ev = result.value
+        switch (ev.type) {
+          case 'text-delta': {
+            if (firstToken) { firstToken = false; setStreaming(true) }
+            setThinking(false)
+            setProcessingLabel(WRITING_LABEL)
+            accumulated += ev.text
+            outChars += ev.text.length
+            flushStream()
+            break
+          }
+          case 'thinking-delta': {
+            thinkingAcc += ev.text
+            outChars += ev.text.length
+            setThinking(true)
+            setProcessingLabel(THINKING_LABEL)
+            flushThink()
+            break
+          }
+          case 'tool-use': {
+            const use = { id: ev.block.id, name: ev.block.name, input: ev.block.input }
+            turnUses.push(use)
+            usesById.set(use.id, use)
+            setActiveToolUses([...turnUses])
+            // The spinner says what the call does, not which tool it is —
+            // "Running the tests…" reads like a status, "running run_bash…" doesn't.
+            // Hidden tools stay hidden here too: "Updating the task list…" is
+            // the one status nobody needs to see.
+            if (!isHiddenTool(ev.block.name)) setProcessingLabel(`${describeTool(ev.block.name, ev.block.input).text}…`)
+            break
+          }
+          case 'tool-result': {
+            const res: ToolResultDisplay = {
+              tool_use_id: ev.block.tool_use_id,
+              content: ev.block.content,
+              is_error: ev.block.is_error,
+              diff: ev.block.diff,
+            }
+            turnResults.push(res)
+            summary.add(usesById.get(res.tool_use_id), res)
+            setActiveToolResults([...turnResults])
+            setProcessingLabel(THINKING_LABEL)
+            break
+          }
+          case 'mode-change': {
+            // The loop, not the user, moved the mode — approving a plan leaves
+            // plan mode. Mirror it so the indicator matches what the agent can
+            // actually do from here, and note it in the transcript.
+            setMode(ev.mode)
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: 'assistant',
+                content: `▸ **plan approved** — ${MODE_LABEL[ev.mode]}: ${MODE_HINT[ev.mode]}`,
+              },
+            ])
+            break
+          }
+          case 'steer': {
+            // Lands after the step it was delivered with, which is where the
+            // model reads it — so the transcript shows when it took effect.
+            setMessages((prev) => [...prev, { role: 'user', content: ev.text }])
+            break
+          }
+          case 'hook-notice': {
+            // A hook the user configured has something wrong with it. It goes
+            // in the transcript rather than a toast: it will keep happening on
+            // every turn until they fix the file, and a notice that vanishes is
+            // one they never see.
+            setMessages((prev) => [...prev, { role: 'assistant', content: `⚠ ${ev.message}` }])
+            break
+          }
+          case 'judge-notice': {
+            setMessages((prev) => [...prev, { role: 'assistant', content: `▸ ${ev.message}` }])
+            break
+          }
+          case 'turn-end': {
+            flushStream(true)
+            flushThink(true)
+            if (ev.stop_reason === 'tool_use') {
+              // Tool turn: clearing `streaming` and committing the turn happen in
+              // the same synchronous tick, so React batches them into one repaint.
+              setStreaming(false)
+              flushTurn(null)
+              setThinking(true)
+              firstToken = true
+            }
+            // Final turn (non-tool stop): DON'T drop `streaming` here. The commit
+            // (flushTurn with real tokens) can't run until the later 'done' event
+            // lands, and an `await` sits between. Clearing `streaming` now would
+            // paint one frame with the live stream gone but the message not yet
+            // committed to the transcript — a blank flash, then a reprint. Leaving `streaming`
+            // true keeps the rendered tail on screen until the post-loop
+            // setStreaming(false)+flushTurn batch swaps it in atomically.
+            break
+          }
+          case 'done': {
+            finalTokens = { prompt: ev.prompt_tokens, eval: ev.eval_tokens }
+            // Some providers never report usage — keep the estimate rather than zero it.
+            if (ev.context_tokens > 0) setUsedTokens(ev.context_tokens)
+            setTotals((t) => ({
+              input: t.input + ev.prompt_tokens,
+              output: t.output + ev.eval_tokens,
+              turns: t.turns + 1,
+              ms: t.ms + (Date.now() - startTime),
+            }))
+            break
+          }
+          case 'aborted': {
+            finalTokens = { prompt: ev.prompt_tokens, eval: ev.eval_tokens }
+            if (ev.context_tokens > 0) setUsedTokens(ev.context_tokens)
+            setStreaming(false)
+            setThinking(false)
+            flushTurn(finalTokens, true)
+            setError(stoppedLine(ev.prompt_tokens + ev.eval_tokens, ev.duration_ms))
+            break
+          }
+          case 'error': {
+            setError(ev.message)
+            break
+          }
+        }
+      }
+
+      setStreaming(false)
+      setThinking(false)
+      if (accumulated || turnUses.length || turnResults.length) flushTurn(finalTokens)
+    } catch (err) {
+      const aborted = controller.signal.aborted
+      const msg = err instanceof Error ? err.message : String(err)
+      setThinking(false)
+      setStreaming(false)
+      if (accumulated || turnUses.length || turnResults.length) flushTurn(null)
+      setError(aborted ? stoppedLine(0, Date.now() - startTime) : msg)
+    }
+
+    abortRef.current = null
+    busyRef.current = false
+    setBusy(false)
+    setProcessingLabel(undefined)
+    setStartedAt(null)
+
+    // Typed after the last tool round, so the model never saw it: it becomes
+    // the next turn. An aborted run's queue went back to the input via esc.
+    if (!controller.signal.aborted && queueRef.current.length) {
+      const next = queueRef.current
+      queueRef.current = []
+      syncQueued()
+      const imgs = next.flatMap((q) => q.images ?? [])
+      void sendMessage(next.map((q) => q.text).join('\n\n'), imgs.length ? imgs : undefined)
+    }
+  }
+
+  /**
+   * Fold the conversation into a summary and keep going — the alternative to
+   * /clear when the window fills up. The visible transcript is left alone (it's
+   * the user's record of the session); what shrinks is the history the model is
+   * sent, so the summary lands in the transcript as its own entry.
+   *
+   * Resolves false when it couldn't run or the model failed to summarise; the
+   * original history is untouched in that case, since a full context is a far
+   * better problem than a lost one.
+   */
+  async function compact(instructions?: string): Promise<boolean> {
+    if (busyRef.current || !model) return false
+    if (!agentHistory.length) {
+      setError('nothing to compact yet — the conversation is empty')
+      return false
+    }
+    busyRef.current = true
+    setBusy(true)
+    setCompacting(true)
+    setProcessingLabel('Compacting context…')
+    setStartedAt(Date.now())
+    setTurnTokens(0)
+    setError(null)
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    try {
+      const res = await compactHistory(model, agentHistory, {
+        instructions,
+        num_ctx: activeCtx ?? undefined,
+        signal: controller.signal,
+      })
+      setAgentHistory(res.history)
+      setUsedTokens(estimateHistoryTokens(res.history))
+      setMessages((prev) => [...prev, { role: 'assistant', content: '⧉ **Compaction completed**' }])
+      return true
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(controller.signal.aborted ? 'Compaction cancelled — context unchanged' : `Compaction failed: ${msg}`)
+      return false
+    } finally {
+      abortRef.current = null
+      busyRef.current = false
+      setBusy(false)
+      setCompacting(false)
+      setProcessingLabel(undefined)
+      setStartedAt(null)
+    }
+  }
+
+  return {
+    // state
+    messages, setMessages,
+    thinking,
+    startedAt,
+    turnTokens,
+    queued,
+    streaming,
+    streamingContent, setStreamingContent,
+    error, setError,
+    busy,
+    processingLabel,
+    agentHistory, setAgentHistory,
+    pendingPermission,
+    permissionCursor, setPermissionCursor,
+    activeToolUses, setActiveToolUses,
+    activeToolResults, setActiveToolResults,
+    usedTokens, setUsedTokens,
+    totals,
+    hooks: hooksRef.current,
+    compacting,
+    mode, setMode, cycleMode,
+    // refs (for keyboard handler)
+    busyRef,
+    abortRef,
+    pendingPermissionRef,
+    modeRef,
+    // actions
+    sendMessage,
+    takeQueue,
+    resolvePermission,
+    cancelPermission,
+    compact,
+  }
+}

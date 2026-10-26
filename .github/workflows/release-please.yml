@@ -1,0 +1,80 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+  # Manual recovery: publish an already-tagged release that failed to reach npm.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish to npm (e.g. viecodie-agent-v0.1.35). Leave empty to just run release-please."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release-please:
+    if: github.event_name == 'push' || inputs.tag == ''
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: always() && (needs.release-please.outputs.released == 'true' || inputs.tag != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Publish the tagged commit, not whatever main has drifted to.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || needs.release-please.outputs.tag }}
+      # Node 24 for npm 11, which can authenticate to npm over OIDC. Node 20
+      # ships npm 10, which cannot — that's what stranded 0.1.35.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build
+
+      # Already on npm? Then this is the manual-recovery path being re-run, or a
+      # version that was hand-published. Publishing again is a hard error, so
+      # skip instead of failing the release.
+      - id: check
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "viecodie-agent@${version}" version >/dev/null 2>&1; then
+            echo "viecodie-agent@${version} is already on npm — nothing to publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Two ways in, so a release never waits on a secret being fresh:
+      #   1. Trusted publishing (OIDC). npm 11 exchanges this job's id-token for
+      #      a short-lived credential — nothing to rotate. Needs a trusted
+      #      publisher for viecodie-agent on npmjs.com, pointing at this repo and
+      #      this workflow file (Settings -> Trusted publisher).
+      #   2. NPM_TOKEN. Used when no trusted publisher is configured. Granular
+      #      tokens expire after at most 90 days, so this one needs regenerating
+      #      on a timer — which is how publishing broke after 0.1.34.
+      # npm tries OIDC first and falls back to the token, so both can be in
+      # place at once and whichever is working wins.
+      - if: steps.check.outputs.skip != 'true'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

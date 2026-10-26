@@ -1,0 +1,75 @@
+export interface OllamaMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool'
+  content: string
+  tool_calls?: OllamaToolCall[]
+  tool_call_id?: string
+  images?: string[]
+  /** Reasoning to hand back to a provider that requires it. See MiiMessage.reasoning. */
+  reasoning_content?: string
+}
+
+export interface OllamaToolCall {
+  id?: string
+  function: {
+    name: string
+    arguments: Record<string, unknown>
+  }
+}
+
+export interface OllamaTool {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: {
+      type: 'object'
+      properties: Record<string, unknown>
+      required?: string[]
+    }
+  }
+}
+
+export interface ChatChunk {
+  content: string
+  thinking?: string
+  done: boolean
+  // Why generation stopped, on the final (done) chunk. 'length' means the output
+  // hit the num_predict cap and was cut off — any inline tool args are partial.
+  done_reason?: string
+  tool_calls?: OllamaToolCall[]
+  prompt_eval_count?: number
+  eval_count?: number
+}
+
+export interface ChatOptions {
+  temperature?: number
+  num_predict?: number
+  num_ctx?: number
+  keep_alive?: string
+  signal?: AbortSignal
+  /** Enable model thinking/reasoning. Defaults to true for ollama. */
+  think?: boolean
+  /**
+   * JSON schema the reply must conform to — Ollama's `format`, OpenAI's
+   * `response_format: json_schema`. Anthropic has no equivalent that works
+   * alongside our streaming/thinking setup, so that adapter ignores it; every
+   * caller must therefore still parse defensively rather than trust the wire
+   * to have enforced the shape. See src/agent/decide.ts.
+   */
+  format?: Record<string, unknown>
+}
+
+/**
+ * The provider answered, but has no model-listing endpoint (404/405/501 on
+ * /models). Not an outage: chat still works, the user just has to name the
+ * model themselves. See listModels() in client.ts.
+ */
+export class ModelsUnsupportedError extends Error {
+  constructor(status: number) {
+    super(`This provider doesn't list its models (HTTP ${status} on /models). Type the model name in /models instead.`)
+    this.name = 'ModelsUnsupportedError'
+  }
+}
+
+/** Statuses meaning "this server has no /models", as opposed to "/models failed". */
+export const MODELS_UNSUPPORTED_STATUS = new Set([404, 405, 501])

@@ -1,0 +1,418 @@
+import { apiKeyFor, type ProviderEntry } from '../config.js'
+import { ModelsUnsupportedError, MODELS_UNSUPPORTED_STATUS, type OllamaMessage, type OllamaTool, type OllamaToolCall, type ChatChunk, type ChatOptions } from './types.js'
+
+export const PROVIDER_NAME = 'openai'
+
+const DEFAULT_CONTEXT = 32768
+
+export function notAvailable(entry: ProviderEntry): string {
+  return `I couldn't reach the provider at ${entry.baseUrl}. Check that the server is running and the baseUrl is correct.`
+}
+
+function headers(entry: ProviderEntry): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  const key = apiKeyFor(entry)
+  if (key) h['Authorization'] = `Bearer ${key}`
+  return h
+}
+
+// Most OpenAI-compatible servers serve the API at /v1, but not all (Gemini's
+// compat layer, and self-hosted gateways that mount it elsewhere), so the path
+// is configurable per provider and defaults to the common case.
+function url(entry: ProviderEntry, endpoint: string): string {
+  const base = entry.baseUrl.replace(/\/$/, '')
+  const path = entry.apiPath ?? '/v1'
+  return `${base}${path}${endpoint}`
+}
+
+function isConnectionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes('ECONNREFUSED') || msg.includes('fetch failed') || msg.includes('connect')
+}
+
+// A remote endpoint needs a key to be usable; a local server (LM Studio,
+// llama.cpp) typically needs none, so only gate the ones that declare a key
+// source.
+export function isAvailable(entry: ProviderEntry): boolean {
+  if (!entry.apiKey && !entry.apiKeyEnv) return true
+  return Boolean(apiKeyFor(entry)) || /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(entry.baseUrl)
+}
+
+export async function listModels(entry: ProviderEntry): Promise<string[]> {
+  try {
+    const res = await fetch(url(entry, '/models'), {
+      headers: headers(entry),
+      signal: AbortSignal.timeout(5000),
+    })
+    if (MODELS_UNSUPPORTED_STATUS.has(res.status)) throw new ModelsUnsupportedError(res.status)
+    if (!res.ok) {
+      let detail = ''
+      try { detail = await res.text() } catch {}
+      throw new Error(`The provider came back with an error (HTTP ${res.status}): ${detail || res.statusText}`)
+    }
+    const body = await res.json() as { data: Array<{ id: string }> }
+    return body.data.map((m) => m.id)
+  } catch (err) {
+    if (isConnectionError(err)) {
+      throw new Error(notAvailable(entry))
+    }
+    throw err
+  }
+}
+
+export async function modelContext(entry: ProviderEntry, _model: string): Promise<number> {
+  // The OpenAI API exposes no per-model context window, so a provider preset
+  // supplies one where it's known and we fall back to a conservative default.
+  return entry.contextWindow ?? DEFAULT_CONTEXT
+}
+
+/**
+ * DeepSeek's thinking mode refuses (HTTP 400) a request that carries tools
+ * unless every earlier assistant message hands its `reasoning_content` back,
+ * including turns that made no tool call. Other servers either ignore the field
+ * or reject it as unknown, so it is only sent where it is required.
+ */
+export function echoesReasoning(entry: ProviderEntry): boolean {
+  try {
+    return /(^|\.)deepseek\.com$/i.test(new URL(entry.baseUrl).hostname)
+  } catch {
+    return false
+  }
+}
+
+export function supportsDeepSeekVision(entry: ProviderEntry, model: string): boolean {
+  return echoesReasoning(entry) && model.trim().toLowerCase() === 'deepseek-flash'
+}
+
+function imageDataUrl(image: string): string {
+  if (image.startsWith('data:image/')) return image
+  const mediaType = image.startsWith('/9j/')
+    ? 'image/jpeg'
+    : image.startsWith('R0lGOD')
+      ? 'image/gif'
+      : image.startsWith('UklGR')
+        ? 'image/webp'
+        : 'image/png'
+  return `data:${mediaType};base64,${image}`
+}
+
+export function toOpenAIMessages(
+  msgs: OllamaMessage[],
+  echoReasoning = false,
+  includeDeepSeekImages = false,
+): unknown[] {
+  return msgs.map((m) => {
+    // An assistant turn with no recorded reasoning (an older session, a compaction
+    // note) still carries the field, empty, so the request stays well-formed.
+    const reasoning = echoReasoning && m.role === 'assistant'
+      ? { reasoning_content: m.reasoning_content ?? '' }
+      : {}
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+      return {
+        role: 'assistant',
+        ...reasoning,
+        content: m.content || null,
+        tool_calls: m.tool_calls.map((tc) => ({
+          id: tc.id ?? `call_${Math.random().toString(36).slice(2, 10)}`,
+          type: 'function' as const,
+          function: {
+            name: tc.function.name,
+            arguments: JSON.stringify(tc.function.arguments),
+          },
+        })),
+      }
+    }
+    if (m.role === 'tool') {
+      return {
+        role: 'tool',
+        content: m.content,
+        tool_call_id: m.tool_call_id ?? '',
+      }
+    }
+    const content = includeDeepSeekImages && m.role === 'user' && m.images?.length
+      ? [
+          ...(m.content ? [{ type: 'text', text: m.content }] : []),
+          ...m.images.map((image) => ({ type: 'image_url', image_url: { url: imageDataUrl(image) } })),
+        ]
+      : m.content
+    return { role: m.role, ...reasoning, content }
+  })
+}
+
+function toOpenAITools(tools?: OllamaTool[]): unknown[] | undefined {
+  if (!tools || tools.length === 0) return undefined
+  return tools.map((t) => ({
+    type: 'function',
+    function: {
+      name: t.function.name,
+      description: t.function.description,
+      parameters: t.function.parameters,
+    },
+  }))
+}
+
+/**
+ * Token usage from one stream chunk, wherever this server put it. Most send a
+ * top-level `usage` (OpenAI and friends on the last chunk, once asked via
+ * stream_options; Mistral, Gemini and Together alongside finish_reason). Groq
+ * nests it under `x_groq`. Llama.cpp also reports `timings` with the counts.
+ */
+export function usageOf(chunk: Record<string, unknown>): { prompt: number; eval: number } | null {
+  const u = (chunk.usage ?? (chunk.x_groq as { usage?: unknown } | undefined)?.usage) as
+    | { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number }
+    | null
+    | undefined
+  if (u) {
+    const prompt = u.prompt_tokens ?? u.input_tokens ?? 0
+    const out = u.completion_tokens ?? u.output_tokens ?? 0
+    if (prompt || out) return { prompt, eval: out }
+  }
+  const t = chunk.timings as { prompt_n?: number; predicted_n?: number; cache_n?: number } | undefined
+  if (t && (t.prompt_n || t.predicted_n)) {
+    return { prompt: (t.prompt_n ?? 0) + (t.cache_n ?? 0), eval: t.predicted_n ?? 0 }
+  }
+  return null
+}
+
+/** True when a 4xx body says the server doesn't know `stream_options`. */
+function rejectsStreamOptions(status: number, detail: string): boolean {
+  return status >= 400 && status < 500 && /stream_options|include_usage/i.test(detail)
+}
+
+// After finish_reason, how long to keep reading for the trailing usage chunk.
+// Some servers (older LM Studio) never close the stream, so this is bounded.
+const USAGE_GRACE_MS = 1500
+
+// Base URLs that rejected stream_options this session, so we don't retry every turn.
+const noStreamOptions = new Set<string>()
+
+function parseSSELine(line: string): unknown | null {
+  if (!line.startsWith('data: ')) return null
+  const data = line.slice(6).trim()
+  if (data === '[DONE]') return null
+  try {
+    return JSON.parse(data) as unknown
+  } catch {
+    return null
+  }
+}
+
+export async function* chat(
+  entry: ProviderEntry,
+  model: string,
+  messages: OllamaMessage[],
+  tools?: OllamaTool[],
+  opts?: ChatOptions,
+): AsyncGenerator<ChatChunk> {
+  if (opts?.signal?.aborted) return
+
+  const oaMessages = toOpenAIMessages(
+    messages,
+    echoesReasoning(entry),
+    supportsDeepSeekVision(entry, model),
+  )
+  const oaTools = toOpenAITools(tools)
+
+  const body: Record<string, unknown> = {
+    model,
+    messages: oaMessages,
+    stream: true,
+    temperature: opts?.temperature ?? 0.2,
+  }
+  // Without this, OpenAI-style servers stream no token counts at all.
+  if (!noStreamOptions.has(entry.baseUrl)) body.stream_options = { include_usage: true }
+  if (oaTools) body.tools = oaTools
+  if (opts?.num_predict && opts.num_predict > 0) body.max_tokens = opts.num_predict
+  if (opts?.format) {
+    body.response_format = {
+      type: 'json_schema',
+      json_schema: { name: 'decision', strict: true, schema: opts.format },
+    }
+  }
+
+  const toolCallAccum: Map<number, {
+    id?: string
+    type?: string
+    name?: string
+    args: string
+  }> = new Map()
+  let lastFinishReason: string | null | undefined
+  let usage: { prompt: number; eval: number } | null = null
+
+  const TIMEOUT_MS = 180000
+  const timeoutSignal = AbortSignal.timeout(TIMEOUT_MS)
+  const combinedSignal = opts?.signal && typeof AbortSignal.any === 'function'
+    ? AbortSignal.any([opts.signal, timeoutSignal])
+    : (opts?.signal ?? timeoutSignal)
+
+  try {
+    const send = () => fetch(url(entry, '/chat/completions'), {
+      method: 'POST',
+      headers: headers(entry),
+      body: JSON.stringify(body),
+      signal: combinedSignal,
+    })
+    let res = await send()
+
+    // The body of a failed response can only be read once, so it is read here
+    // and reused for the error below.
+    let detail = ''
+    if (!res.ok) {
+      try { detail = await res.text() } catch {}
+      // A strict server that doesn't know stream_options: remember, and go without counts.
+      if (body.stream_options && rejectsStreamOptions(res.status, detail)) {
+        noStreamOptions.add(entry.baseUrl)
+        delete body.stream_options
+        res = await send()
+        detail = ''
+        if (!res.ok) try { detail = await res.text() } catch {}
+      }
+    }
+
+    if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error(`The provider at ${entry.baseUrl} has no model called "${model}". Double-check the name, or pick another with /models.`)
+      }
+      throw new Error(`The provider came back with an error (HTTP ${res.status}): ${detail || res.statusText}`)
+    }
+
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('The provider answered but sent no body to read.')
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    try {
+      let finished = false
+      readLoop: while (true) {
+        let next: ReadableStreamReadResult<Uint8Array> | null
+        if (!finished) {
+          next = await reader.read()
+        } else {
+          // Finished, still waiting on usage: give it a moment, not forever.
+          let timer: ReturnType<typeof setTimeout> | undefined
+          next = await Promise.race([
+            reader.read(),
+            new Promise<null>((r) => { timer = setTimeout(() => r(null), USAGE_GRACE_MS) }),
+          ])
+          clearTimeout(timer)
+        }
+        if (!next || next.done || opts?.signal?.aborted) break
+        const value = next.value
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ') && line.slice(6).trim() === '[DONE]') break readLoop
+          const parsed = parseSSELine(line) as Record<string, unknown> | null
+          if (!parsed) continue
+          usage = usageOf(parsed) ?? usage
+          if (finished && usage) break readLoop
+
+          const choices = parsed.choices as Array<{
+            delta: Record<string, unknown>
+            finish_reason?: string | null
+          }> | undefined
+          if (!choices || choices.length === 0) continue
+
+          const delta = choices[0].delta ?? {}
+          const finishReason = choices[0].finish_reason
+          if (finishReason) lastFinishReason = finishReason
+
+          // Reasoning models stream their thinking in a separate delta field.
+          // Different OpenAI-compatible servers spell it differently:
+          // `reasoning_content` (DeepSeek, vLLM), `reasoning` (OpenRouter), or
+          // the nested `reasoning.content`. Surface any of them as thinking.
+          const reasoning =
+            (delta.reasoning_content as string | undefined) ??
+            (typeof delta.reasoning === 'string' ? delta.reasoning : undefined) ??
+            (delta.reasoning as { content?: string } | undefined)?.content
+          if (reasoning) {
+            yield { content: '', thinking: reasoning, done: false }
+          }
+
+          if (delta.content) {
+            yield { content: delta.content as string, done: false }
+          }
+
+          const deltaToolCalls = delta.tool_calls as Array<{
+            index: number
+            id?: string
+            type?: string
+            function?: { name?: string; arguments?: string }
+          }> | undefined
+          if (deltaToolCalls) {
+            for (const tc of deltaToolCalls) {
+              const idx = tc.index
+              if (!toolCallAccum.has(idx)) {
+                toolCallAccum.set(idx, { args: '' })
+              }
+              const acc = toolCallAccum.get(idx)!
+              if (tc.id) acc.id = tc.id
+              if (tc.type) acc.type = tc.type
+              if (tc.function) {
+                if (tc.function.name) acc.name = tc.function.name
+                if (tc.function.arguments) acc.args += tc.function.arguments
+              }
+            }
+          }
+
+          if (finishReason) {
+            // The usage chunk, when there is one, comes after this.
+            if (usage) break readLoop
+            finished = true
+          }
+        }
+      }
+    } finally {
+      reader.cancel().catch(() => {})
+    }
+  } catch (err) {
+    if (opts?.signal?.aborted) {
+      yield { content: '', done: true, prompt_eval_count: 0, eval_count: 0 }
+      return
+    }
+    if (isConnectionError(err)) {
+      throw new Error(notAvailable(entry))
+    }
+    if (timeoutSignal.aborted && !opts?.signal?.aborted) {
+      throw new Error(`The provider didn't respond within ${TIMEOUT_MS / 1000}s, so I stopped waiting. The model may still be loading or thinking — give it another try.`)
+    }
+    throw err
+  }
+
+  if (opts?.signal?.aborted) {
+    yield { content: '', done: true, prompt_eval_count: 0, eval_count: 0 }
+    return
+  }
+
+  const toolCalls: OllamaToolCall[] = []
+  for (const [, acc] of toolCallAccum) {
+    let parsedArgs: Record<string, unknown> = {}
+    try {
+      parsedArgs = JSON.parse(acc.args) as Record<string, unknown>
+    } catch {
+      parsedArgs = { _raw: acc.args }
+    }
+    toolCalls.push({
+      id: acc.id,
+      function: {
+        name: acc.name ?? '',
+        arguments: parsedArgs,
+      },
+    })
+  }
+
+  yield {
+    content: '',
+    done: true,
+    // OpenAI signals a hit token cap as finish_reason 'length'; normalize to the
+    // Ollama spelling so the agent loop can detect truncation uniformly.
+    done_reason: lastFinishReason === 'length' ? 'length' : lastFinishReason ?? undefined,
+    tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    prompt_eval_count: usage?.prompt ?? 0,
+    eval_count: usage?.eval ?? 0,
+  }
+}

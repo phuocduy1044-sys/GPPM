@@ -1,0 +1,274 @@
+/**
+ * Session store — Claude Code-style persistent chat sessions.
+ *
+ * Sessions live globally under `~/.viecodie/projects/<encoded-cwd>/session/`,
+ * keyed by the project directory (like Claude Code) so each project keeps its
+ * own history without writing into the project tree. Each session is an
+ * append-style JSONL file at `<dir>/<id>.jsonl`:
+ *   line 1   → { type: 'meta', ...SessionMeta }
+ *   line 2.. → { type: 'message', message: MiiMessage }
+ *
+ * Sessions auto-save every turn; the title is an LLM summary of the user's
+ * first message; `/resume` lists and reloads them.
+ */
+import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync, rmSync } from 'fs'
+import { join } from 'path'
+import { homedir } from 'os'
+import { randomUUID } from 'crypto'
+import { chat } from '../llm/client.js'
+import type { MiiMessage } from '../agent/types.js'
+import type { ChatMessage } from '../ui/types.js'
+
+/** Encode the cwd into a single dir-safe segment, Claude Code-style. */
+function encodeProjectDir(cwd: string): string {
+  return cwd.replace(/[:/\\]+/g, '-').replace(/^-+/, '')
+}
+
+const SESSION_DIR = join(homedir(), '.viecodie', 'projects', encodeProjectDir(process.cwd()), 'session')
+
+export interface SessionMeta {
+  id: string
+  createdAt: string
+  updatedAt: string
+  /** LLM one-line summary of the session; falls back to first user message. */
+  title: string
+  messageCount: number
+}
+
+type MetaLine = { type: 'meta' } & SessionMeta
+type MessageLine = { type: 'message'; message: MiiMessage }
+
+export function newSessionId(): string {
+  return randomUUID()
+}
+
+function sessionPath(id: string): string {
+  return join(SESSION_DIR, `${id}.jsonl`)
+}
+
+/** Flatten a MiiMessage's content (string or blocks) to plain text. */
+function messageText(m: MiiMessage): string {
+  if (typeof m.content === 'string') return m.content
+  return m.content
+    .map((b) => {
+      if (b.type === 'text') return b.text
+      if (b.type === 'tool_use') return `[tool ${b.name}]`
+      if (b.type === 'tool_result') return '[result]'
+      return ''
+    })
+    .join(' ')
+}
+
+function firstUserText(messages: MiiMessage[]): string {
+  const first = messages.find((m) => m.role === 'user')
+  if (!first) return 'untitled'
+  return flattenForTitle(messageText(first)).slice(0, 80) || 'untitled'
+}
+
+/** Read just the meta line (first line) of a session file. */
+function readMeta(id: string): SessionMeta | null {
+  try {
+    const raw = readFileSync(sessionPath(id), 'utf-8')
+    const firstLine = raw.slice(0, raw.indexOf('\n') === -1 ? raw.length : raw.indexOf('\n'))
+    const parsed = JSON.parse(firstLine) as MetaLine
+    if (parsed.type !== 'meta') return null
+    const { type: _t, ...meta } = parsed
+    return meta
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Persist the full history for a session, rewriting its JSONL file.
+ * Preserves createdAt and any existing title across saves; pass `title` to
+ * override with an LLM summary.
+ */
+export function persistSession(id: string, messages: MiiMessage[], title?: string): void {
+  if (!messages.length) return
+  mkdirSync(SESSION_DIR, { recursive: true })
+
+  const existing = readMeta(id)
+  const now = new Date().toISOString()
+  const meta: SessionMeta = {
+    id,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    title: title ?? existing?.title ?? firstUserText(messages),
+    messageCount: messages.length,
+  }
+
+  const lines: string[] = [JSON.stringify({ type: 'meta', ...meta } satisfies MetaLine)]
+  for (const message of messages) {
+    // Drop attached image base64 before writing — it can be megabytes per turn
+    // and bloats the JSONL. Vision is a per-turn input, not durable context.
+    const { images: _img, ...rest } = message
+    lines.push(JSON.stringify({ type: 'message', message: rest } satisfies MessageLine))
+  }
+  writeFileSync(sessionPath(id), lines.join('\n') + '\n', 'utf-8')
+}
+
+/**
+ * Update only a session's title, preserving whatever messages are currently on
+ * disk. Used by the background summariser, which may finish after more turns
+ * have been saved — reloading avoids clobbering them with a stale snapshot.
+ */
+export function setSessionTitle(id: string, title: string): void {
+  if (!readMeta(id)) return
+  persistSession(id, loadSession(id), title)
+}
+
+/** All saved sessions, most-recently-updated first. */
+export function listSessions(): SessionMeta[] {
+  if (!existsSync(SESSION_DIR)) return []
+  const metas: SessionMeta[] = []
+  for (const file of readdirSync(SESSION_DIR)) {
+    if (!file.endsWith('.jsonl')) continue
+    const meta = readMeta(file.replace(/\.jsonl$/, ''))
+    if (meta) metas.push(meta)
+  }
+  return metas.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+/** Delete a session's JSONL file. No-op if it doesn't exist. */
+export function deleteSession(id: string): void {
+  try {
+    rmSync(sessionPath(id), { force: true })
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Load a session's full message history. */
+export function loadSession(id: string): MiiMessage[] {
+  try {
+    const raw = readFileSync(sessionPath(id), 'utf-8')
+    const messages: MiiMessage[] = []
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue
+      const parsed = JSON.parse(line) as MetaLine | MessageLine
+      if (parsed.type === 'message') messages.push(parsed.message)
+    }
+    return messages
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Rebuild display messages (ChatMessage[]) from agent history (MiiMessage[]).
+ * Pairs assistant tool_use blocks with the tool_result blocks that follow in
+ * the next user message, mirroring the live renderer.
+ */
+export function toDisplayMessages(history: MiiMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = []
+  for (const m of history) {
+    if (m.role === 'system') continue
+    const blocks = Array.isArray(m.content)
+      ? m.content
+      : [{ type: 'text' as const, text: m.content }]
+
+    if (m.role === 'user') {
+      const text = blocks
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+      const results = blocks.filter((b) => b.type === 'tool_result')
+      if (results.length && out.length) {
+        const last = out[out.length - 1]
+        last.tool_results = [
+          ...(last.tool_results ?? []),
+          ...results.map((r) => ({
+            tool_use_id: r.tool_use_id,
+            content: r.content,
+            is_error: r.is_error,
+            diff: r.diff,
+          })),
+        ]
+      }
+      if (text.trim()) out.push({ role: 'user', content: text })
+    } else {
+      const text = blocks
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+      const uses = blocks
+        .filter((b) => b.type === 'tool_use')
+        .map((b) => ({ id: b.id, name: b.name, input: b.input }))
+      out.push({
+        role: 'assistant',
+        content: text,
+        tool_uses: uses.length ? uses : undefined,
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * Strip markup/pasted-blob noise to a flat, human-readable string: drop HTML
+ * tags, collapse whitespace. Used to clean both the summarizer input and its
+ * fallback so a pasted `<a href…>` blob never becomes a session title.
+ */
+function flattenForTitle(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, ' ') // strip HTML/XML tags
+    .replace(/[`*_#>|]/g, ' ') // strip markdown punctuation
+    .replace(/https?:\/\/\S+/g, ' ') // drop bare URLs
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** A model title is unusable if empty, still markup, or absurdly long. */
+function looksLikeJunkTitle(title: string): boolean {
+  return !title || /[<>]/.test(title) || title.length > 80
+}
+
+/**
+ * Ask the model for a short title summarising the conversation so far — the
+ * first user message plus the assistant's reply, Claude Code-style — rather
+ * than echoing the raw first message. Sanitises input before summarising and
+ * rejects markup-looking output, falling back to a flattened slice.
+ */
+export async function summarizeConversation(
+  model: string,
+  messages: MiiMessage[],
+): Promise<string> {
+  // Build "User: …\nAssistant: …" from the first user turn + first reply.
+  const parts: string[] = []
+  let sawUser = false
+  let sawAssistant = false
+  for (const m of messages) {
+    if (m.role === 'system') continue
+    const t = flattenForTitle(messageText(m))
+    if (!t) continue
+    if (m.role === 'user' && !sawUser) { parts.push(`User: ${t}`); sawUser = true }
+    else if (m.role === 'assistant' && !sawAssistant) { parts.push(`Assistant: ${t}`); sawAssistant = true }
+    if (sawUser && sawAssistant) break
+  }
+  const convo = parts.join('\n').slice(0, 2000)
+  const fallback = (parts[0]?.replace(/^User: /, '') ?? '').slice(0, 80) || 'untitled'
+
+  const prompt =
+    'Summarize this conversation as a short title, 3-6 words, no punctuation. ' +
+    'Reply with the title only.\n\n' +
+    `Conversation:\n${convo}`
+
+  try {
+    let out = ''
+    for await (const chunk of chat(
+      model,
+      [{ role: 'user', content: prompt }],
+      undefined,
+      // Disable thinking + give content room: reasoning models otherwise burn
+      // the whole budget on hidden thinking and emit no title text.
+      { temperature: 0.2, num_predict: 64, think: false },
+    )) {
+      if (chunk.content) out += chunk.content
+    }
+    const title = out.trim().split('\n').filter(Boolean)[0]?.trim() ?? ''
+    return looksLikeJunkTitle(title) ? fallback : title
+  } catch {
+    return fallback
+  }
+}
