@@ -141,6 +141,7 @@ export interface ReviewReport {
   edges: GraphEdge[];
   unresolvedCalls: UnresolvedCall[];
   findings: Finding[];
+  fileContents?: Record<string, string>;
   patch?: Patch;
   verification?: VerificationResult;
 }

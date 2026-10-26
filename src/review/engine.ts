@@ -44,6 +44,13 @@ export async function reviewProject(options: ReviewProjectOptions): Promise<Revi
 
   const reviewId = `rev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
+  const fileContents: Record<string, string> = {};
+  for (const f of files) {
+    fileContents[f.relativePath] = f.content;
+    const base = f.relativePath.split(/[\\/]/).pop();
+    if (base) fileContents[base] = f.content;
+  }
+
   const report: ReviewReport = {
     schemaVersion: 1,
     reviewId,
@@ -59,6 +66,7 @@ export async function reviewProject(options: ReviewProjectOptions): Promise<Revi
     edges: astResult.edges,
     unresolvedCalls: astResult.unresolvedCalls,
     findings: aiResult.findings,
+    fileContents,
   };
 
   activeReport = report;
@@ -77,36 +85,51 @@ export function setCurrentReport(report: ReviewReport): void {
   saveReportCache(report);
 }
 
-function getCacheDir(): string {
-  const dir = join(process.env.LOCALAPPDATA || process.env.HOME || '.', '.viecodie', 'reports');
-  if (!existsSync(dir)) {
-    try {
-      mkdirSync(dir, { recursive: true });
-    } catch { /* ignore */ }
+function getCacheDirs(): string[] {
+  const dirs: string[] = [];
+  if (process.env.LOCALAPPDATA) {
+    dirs.push(join(process.env.LOCALAPPDATA, '.viecodie', 'reports'));
   }
-  return dir;
+  if (process.env.USERPROFILE) {
+    dirs.push(join(process.env.USERPROFILE, '.viecodie', 'reports'));
+  }
+  if (process.env.HOME && process.env.HOME !== process.env.USERPROFILE) {
+    dirs.push(join(process.env.HOME, '.viecodie', 'reports'));
+  }
+  dirs.push(join(process.cwd(), '.viecodie', 'reports'));
+  return dirs;
 }
 
 export function saveReportCache(report: ReviewReport): void {
-  try {
-    const dir = getCacheDir();
-    const filePath = join(dir, 'latest-review.json');
-    writeFileSync(filePath, JSON.stringify(report, null, 2), 'utf8');
-  } catch {
-    // Non-fatal if cache save fails
+  const dirs = getCacheDirs();
+  for (const dir of dirs) {
+    try {
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      const filePath = join(dir, 'latest-review.json');
+      writeFileSync(filePath, JSON.stringify(report, null, 2), 'utf8');
+    } catch {
+      // Continue to next dir
+    }
   }
 }
 
 export function loadReportCache(): ReviewReport | null {
-  try {
-    const dir = getCacheDir();
-    const filePath = join(dir, 'latest-review.json');
-    if (existsSync(filePath)) {
-      const content = readFileSync(filePath, 'utf8');
-      return JSON.parse(content) as ReviewReport;
+  const dirs = getCacheDirs();
+  for (const dir of dirs) {
+    try {
+      const filePath = join(dir, 'latest-review.json');
+      if (existsSync(filePath)) {
+        const content = readFileSync(filePath, 'utf8');
+        const parsed = JSON.parse(content) as ReviewReport;
+        if (parsed && parsed.projectName) {
+          return parsed;
+        }
+      }
+    } catch {
+      // Continue to next dir
     }
-  } catch {
-    return null;
   }
   return null;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { IconFileCode, IconX } from '@tabler/icons-react'
 import type { Finding } from '@/lib/reviewTypes'
 
@@ -21,7 +21,23 @@ export function CodeReview({
   selectedFindingId,
   onSelectFinding,
 }: CodeReviewProps) {
-  const [openTabs, setOpenTabs] = useState<string[]>(['auth.js', 'app.js'])
+  const [openTabs, setOpenTabs] = useState<string[]>(() => {
+    return files.length > 0 ? files.slice(0, 3).map((f) => f.name) : [activeFile]
+  })
+
+  // Ensure active file is always in open tabs
+  useEffect(() => {
+    if (activeFile && !openTabs.includes(activeFile)) {
+      setOpenTabs((prev) => [...prev, activeFile])
+    }
+  }, [activeFile])
+
+  // Sync open tabs when project files load
+  useEffect(() => {
+    if (files.length > 0 && !openTabs.some((t) => files.some((f) => f.name === t))) {
+      setOpenTabs(files.slice(0, 3).map((f) => f.name))
+    }
+  }, [files])
 
   const currentContent = fileContents[activeFile] || `// ${activeFile}\n// Không có nội dung tệp`
   const lines = currentContent.split('\n')

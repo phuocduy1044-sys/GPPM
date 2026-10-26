@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import {
   IconArrowBackUp,
   IconArrowsMaximize,
@@ -76,23 +76,177 @@ export function GraphReview({
 
   const handleMouseUp = () => setIsDragging(false)
 
-  // Layout positions for nodes
-  const nodePositions: Record<string, { x: number; y: number; width: number; height: number; file: string }> = {
-    auth_buildAuthQuery: { x: 40, y: 160, width: 140, height: 42, file: 'auth.js' },
-    transactions_reconcile: { x: 230, y: 160, width: 150, height: 42, file: 'transactions.js' },
-    records_process: { x: 430, y: 160, width: 140, height: 42, file: 'records.js' },
-    app_runDailyAudit: { x: 620, y: 160, width: 130, height: 42, file: 'app.js' },
-    app_syncAuditArchive: { x: 620, y: 220, width: 130, height: 42, file: 'app.js' },
-    ext_http_api: { x: 700, y: 340, width: 110, height: 38, file: 'HTTP API' },
+  // 1. Group nodes dynamically by file
+  const fileGroups = useMemo(() => {
+    const groups = new Map<string, GraphNode[]>()
+    for (const node of nodes) {
+      const fileName = node.file || 'unknown.js'
+      if (!groups.has(fileName)) {
+        groups.set(fileName, [])
+      }
+      groups.get(fileName)!.push(node)
+    }
+    return groups
+  }, [nodes])
+
+  // 2. Compute dynamic layout for file containers and node positions
+  const { fileContainers, nodePositions, firstFileWithIssue } = useMemo(() => {
+    const containers: Array<{
+      name: string
+      lang: string
+      x: number
+      y: number
+      width: number
+      height: number
+      hasIssue: boolean
+    }> = []
+    const positions: Record<string, { x: number; y: number; width: number; height: number; file: string }> = {}
+
+    const containerWidth = 220
+    const containerSpacing = 50
+    const startX = 40
+    const startY = 100
+    const nodeHeight = 44
+    const nodeGap = 12
+    const headerHeight = 52
+    const bottomPadding = 16
+
+    let fileIdx = 0
+    let firstIssueFile: string | null = null
+
+    for (const [fileName, fileNodes] of fileGroups.entries()) {
+      const count = fileNodes.length
+      const containerHeight = Math.max(130, headerHeight + count * (nodeHeight + nodeGap) - nodeGap + bottomPadding)
+      const containerX = startX + fileIdx * (containerWidth + containerSpacing)
+      const containerY = startY
+
+      const hasFileIssue = fileNodes.some((n) => n.hasIssue)
+      if (hasFileIssue && !firstIssueFile) {
+        firstIssueFile = fileName
+      }
+
+      const lang = fileName.endsWith('.ts') || fileName.endsWith('.tsx')
+        ? `TypeScript · ${count} hàm`
+        : `JavaScript · ${count} hàm`
+
+      containers.push({
+        name: fileName,
+        lang,
+        x: containerX,
+        y: containerY,
+        width: containerWidth,
+        height: containerHeight,
+        hasIssue: hasFileIssue,
+      })
+
+      // Position each node inside container
+      fileNodes.forEach((node, nodeIdx) => {
+        const nx = containerX + 14
+        const ny = containerY + headerHeight + nodeIdx * (nodeHeight + nodeGap)
+        const nw = containerWidth - 28
+        const nh = nodeHeight
+
+        const pos = { x: nx, y: ny, width: nw, height: nh, file: fileName }
+        positions[node.id] = pos
+        // Also index by functionName and fn:*:name for robust edge lookup
+        if (!positions[node.functionName]) {
+          positions[node.functionName] = pos
+        }
+      })
+
+      fileIdx++
+    }
+
+    return {
+      fileContainers: containers,
+      nodePositions: positions,
+      firstFileWithIssue: firstIssueFile || (containers[0]?.name ?? 'auth.js'),
+    }
+  }, [fileGroups])
+
+  // Helper to resolve node position by ID or name
+  const getNodePos = (idOrName: string) => {
+    if (nodePositions[idOrName]) return nodePositions[idOrName]
+    const found = nodes.find(
+      (n) => n.id === idOrName || n.functionName === idOrName || n.id.endsWith(':' + idOrName)
+    )
+    if (found && nodePositions[found.id]) return nodePositions[found.id]
+    for (const key of Object.keys(nodePositions)) {
+      if (key.endsWith(':' + idOrName) || key.endsWith('/' + idOrName)) {
+        return nodePositions[key]
+      }
+    }
+    return null
   }
 
-  // File bounding containers
-  const fileContainers = [
-    { name: 'auth.js', lang: 'JavaScript · 1 hàm', x: 20, y: 100, width: 180, height: 130 },
-    { name: 'transactions.js', lang: 'JavaScript · 1 hàm', x: 215, y: 100, width: 180, height: 130 },
-    { name: 'records.js', lang: 'JavaScript · 1 hàm', x: 415, y: 100, width: 170, height: 130 },
-    { name: 'app.js', lang: 'JavaScript · 2 hàm', x: 605, y: 100, width: 160, height: 190 },
-  ]
+  // 3. Compute dynamic bezier curve edges
+  const computedEdges = useMemo(() => {
+    return edges
+      .map((edge) => {
+        const src = getNodePos(edge.sourceNodeId)
+        const tgt = getNodePos(edge.targetNodeId)
+        if (!src || !tgt) return null
+
+        let x1: number, y1: number, x2: number, y2: number
+        let cx1: number, cy1: number, cx2: number, cy2: number
+
+        const isSameFile = src.file === tgt.file
+        const isSelected =
+          edge.sourceNodeId === selectedNodeId ||
+          edge.targetNodeId === selectedNodeId ||
+          src.file === selectedNode?.file ||
+          tgt.file === selectedNode?.file
+
+        if (isSameFile) {
+          // Arc out to the right within the same file container
+          x1 = src.x + src.width
+          y1 = src.y + src.height / 2
+          x2 = tgt.x + tgt.width
+          y2 = tgt.y + tgt.height / 2
+          const arc = Math.abs(y2 - y1) * 0.4 + 30
+          cx1 = x1 + arc
+          cy1 = y1
+          cx2 = x2 + arc
+          cy2 = y2
+        } else if (src.x + src.width <= tgt.x) {
+          // Flow from left to right
+          x1 = src.x + src.width
+          y1 = src.y + src.height / 2
+          x2 = tgt.x
+          y2 = tgt.y + tgt.height / 2
+          const dx = Math.max(30, (x2 - x1) * 0.45)
+          cx1 = x1 + dx
+          cy1 = y1
+          cx2 = x2 - dx
+          cy2 = y2
+        } else {
+          // Flow from right to left (backwards)
+          x1 = src.x
+          y1 = src.y + src.height / 2
+          x2 = tgt.x + tgt.width
+          y2 = tgt.y + tgt.height / 2
+          const dx = Math.max(35, Math.abs(x1 - x2) * 0.35)
+          cx1 = x1 - dx
+          cy1 = y1 + (y2 > y1 ? 20 : -20)
+          cx2 = x2 + dx
+          cy2 = y2 + (y2 > y1 ? -20 : 20)
+        }
+
+        const d = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`
+        const isHttp = edge.type === 'inferred_http' || edge.targetNodeId.toLowerCase().includes('http')
+
+        return {
+          id: edge.id,
+          d,
+          isHttp,
+          isCrossFile: src.file !== tgt.file,
+          isSelected,
+          sourceId: edge.sourceNodeId,
+          targetId: edge.targetNodeId,
+        }
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null)
+  }, [edges, nodePositions, selectedNodeId, selectedNode])
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden bg-[#070c14] select-none">
@@ -103,7 +257,9 @@ export function GraphReview({
             <IconFocus2 className="size-4 text-primary" stroke={2} />
             <span>Graph Review</span>
           </div>
-          <span className="text-xs text-muted-foreground">· 5 hàm · 3 cạnh · 4 tệp · 1 HTTP</span>
+          <span className="text-xs text-muted-foreground">
+            · {nodes.length} hàm · {edges.length} cạnh · {fileContainers.length} tệp
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -119,18 +275,7 @@ export function GraphReview({
           >
             {filterIssueOnly ? 'Đang lọc: Chỉ lỗi' : 'Tất cả hàm'}
           </button>
-          {/* Filter issues toggle */}
-          <button
-            type="button"
-            onClick={() => setFilterIssueOnly((f) => !f)}
-            className={`rounded-md px-2.5 py-1 text-[11px] font-semibold border transition-all ${
-              filterIssueOnly
-                ? 'border-rose-500/50 bg-rose-500/20 text-rose-300'
-                : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {filterIssueOnly ? 'Đang lọc: Chỉ lỗi' : 'Tất cả hàm'}
-          </button>
+
           {/* Search bar */}
           <div className="relative flex items-center">
             <IconSearch className="absolute left-2.5 size-3.5 text-muted-foreground" />
@@ -174,7 +319,7 @@ export function GraphReview({
             </button>
             <button
               type="button"
-              onClick={() => setZoom(1.2)}
+              onClick={() => setZoom(1.1)}
               className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               title="Vừa khung"
             >
@@ -229,15 +374,15 @@ export function GraphReview({
           </div>
         </div>
 
-        {/* Action button: Phân tích tệp đầu tiên */}
+        {/* Action button: Phân tích tệp */}
         <div className="absolute right-4 top-4 z-20">
           <button
             type="button"
-            onClick={() => onAnalyzeFile?.('auth.js')}
+            onClick={() => onAnalyzeFile?.(firstFileWithIssue)}
             className="flex items-center gap-1.5 rounded-lg border border-lime-500/40 bg-lime-500/10 px-3 py-1.5 text-xs font-semibold text-lime-400 shadow-3d-1 transition-all hover:bg-lime-500/20 hover:border-lime-500/60"
           >
             <IconTestPipe className="size-4" />
-            <span>Phân tích tệp đầu tiên</span>
+            <span>Xem mã {firstFileWithIssue}</span>
           </button>
         </div>
 
@@ -271,7 +416,7 @@ export function GraphReview({
                 className="fill-[#0c1626]/80 stroke-border/70"
                 strokeWidth={1}
               />
-              <rect x={fc.x + 8} y={fc.y + 10} width={2.5} height={12} rx={1} className="fill-amber-400" />
+              <rect x={fc.x + 8} y={fc.y + 10} width={2.5} height={12} rx={1} className={fc.hasIssue ? 'fill-rose-500' : 'fill-amber-400'} />
               <text x={fc.x + 15} y={fc.y + 20} className="fill-foreground font-mono text-[11px] font-semibold">
                 {fc.name}
               </text>
@@ -281,47 +426,24 @@ export function GraphReview({
             </g>
           ))}
 
-          {/* Render Edges */}
-          {/* Edge 1: app_runDailyAudit -> records_process */}
-          <path
-            d="M 620 181 L 570 181"
-            fill="none"
-            stroke="#22d3ee"
-            strokeWidth={1.5}
-            strokeDasharray="4 3"
-            markerEnd="url(#arrow-cyan)"
-          />
-          {/* Edge 2: records_process -> transactions_reconcile */}
-          <path
-            d="M 430 181 L 380 181"
-            fill="none"
-            stroke="#22d3ee"
-            strokeWidth={1.5}
-            strokeDasharray="4 3"
-            markerEnd="url(#arrow-cyan)"
-          />
-          {/* Edge 3: transactions_reconcile -> auth_buildAuthQuery */}
-          <path
-            d="M 230 181 L 180 181"
-            fill="none"
-            stroke="#22d3ee"
-            strokeWidth={1.5}
-            strokeDasharray="4 3"
-            markerEnd="url(#arrow-cyan)"
-          />
-          {/* Edge 4: app_syncAuditArchive -> ext_http_api */}
-          <path
-            d="M 685 262 C 685 300, 755 300, 755 340"
-            fill="none"
-            stroke="#c084fc"
-            strokeWidth={1.5}
-            strokeDasharray="3 3"
-            markerEnd="url(#arrow-purple)"
-          />
+          {/* Render Dynamic Edges */}
+          {computedEdges.map((ce) => (
+            <path
+              key={ce.id}
+              d={ce.d}
+              fill="none"
+              stroke={ce.isHttp ? '#c084fc' : ce.isSelected ? '#38bdf8' : '#22d3ee'}
+              strokeWidth={ce.isSelected ? 2.5 : 1.5}
+              strokeDasharray={ce.isCrossFile || ce.isHttp ? '4 3' : undefined}
+              markerEnd={ce.isHttp ? 'url(#arrow-purple)' : 'url(#arrow-cyan)'}
+              className="transition-all"
+              opacity={!selectedNodeId || ce.isSelected ? 0.9 : 0.25}
+            />
+          ))}
 
           {/* Render Function Nodes */}
           {nodes.map((node) => {
-            const pos = nodePositions[node.id] || { x: 100, y: 100, width: 120, height: 40 }
+            const pos = nodePositions[node.id] || { x: 100, y: 100, width: 192, height: 44 }
             const isSelected = node.id === selectedNodeId
             const isMatched = matchedNodeIds.has(node.id)
             const caller = isCaller(node.functionName)
@@ -351,7 +473,7 @@ export function GraphReview({
                     textAnchor="middle"
                     className="fill-purple-300 font-mono text-[11px] font-semibold"
                   >
-                    HTTP API
+                    {node.functionName}
                   </text>
                   <text
                     x={pos.x + pos.width / 2}
@@ -410,7 +532,7 @@ export function GraphReview({
                     node.hasIssue ? 'fill-rose-200' : 'fill-foreground'
                   }`}
                 >
-                  {node.functionName.length > 17 ? node.functionName.slice(0, 15) + '…' : node.functionName}
+                  {node.functionName.length > 20 ? node.functionName.slice(0, 18) + '…' : node.functionName}
                 </text>
 
                 {/* Function badge "fn" */}
@@ -446,15 +568,19 @@ export function GraphReview({
         </svg>
 
         {/* Minimap preview in bottom-right */}
-        <div className="absolute bottom-4 right-4 z-20 h-16 w-28 rounded-lg border border-border/50 bg-[#0d1624]/90 p-1.5 shadow-3d-2 backdrop-blur-md">
-          <div className="flex h-full w-full items-center justify-around gap-1 rounded bg-[#070c14]/80 p-1">
-            <span className="h-4 w-4 rounded-sm bg-cyan-500/30 border border-cyan-500/50" />
-            <span className="h-4 w-4 rounded-sm bg-cyan-500/30 border border-cyan-500/50" />
-            <span className="h-4 w-4 rounded-sm bg-cyan-500/30 border border-cyan-500/50" />
-            <div className="flex flex-col gap-0.5">
-              <span className="h-2 w-3 rounded-xs bg-cyan-500/40" />
-              <span className="h-2 w-3 rounded-xs bg-cyan-500/40" />
-            </div>
+        <div className="absolute bottom-4 right-4 z-20 h-16 w-32 rounded-lg border border-border/50 bg-[#0d1624]/90 p-1.5 shadow-3d-2 backdrop-blur-md">
+          <div className="flex h-full w-full items-center justify-around gap-1 rounded bg-[#070c14]/80 p-1 overflow-hidden">
+            {fileContainers.slice(0, 5).map((fc) => (
+              <span
+                key={fc.name}
+                className={`h-6 flex-1 rounded-xs border transition-colors ${
+                  fc.hasIssue
+                    ? 'border-rose-500/60 bg-rose-500/25'
+                    : 'border-cyan-500/50 bg-cyan-500/20'
+                }`}
+                title={fc.name}
+              />
+            ))}
           </div>
         </div>
 

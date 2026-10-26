@@ -10,6 +10,7 @@ import {
   IconTool,
 } from '@tabler/icons-react'
 import type { GraphNode, Finding } from '@/lib/reviewTypes'
+import { token } from '@/lib/api'
 
 interface RightPanelProps {
   selectedNode?: GraphNode
@@ -36,9 +37,13 @@ export function RightPanel({
     if (!selectedFinding) return
     setApplying(true)
     try {
-      await fetch('/api/review/apply', {
+      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      await fetch(`/api/review/apply${queryToken}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-viecodie-token': token ?? '',
+        },
         body: JSON.stringify({ findingId: selectedFinding.id }),
       }).catch(() => null)
     } finally {

@@ -13,6 +13,7 @@ import {
 } from '@tabler/icons-react'
 import { DEMO_PROJECT_FIXTURE } from '@/lib/reviewFixture'
 import type { Finding } from '@/lib/reviewTypes'
+import { token } from '@/lib/api'
 import { GraphReview } from './GraphReview'
 import { CodeReview } from './CodeReview'
 import { RightPanel } from './RightPanel'
@@ -32,34 +33,22 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
 
   // Fetch live backend report if available
   useEffect(() => {
-    fetch('/api/review/current')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.nodes && data.findings && data.findings.length > 0) {
-          const adaptedNodes = (data.nodes as any[]).map((n: any) => ({
-            id: n.id,
-            file: n.filePath?.split(/[\\/]/).pop() || n.filePath || 'file',
-            functionName: n.name,
-            startLine: n.startLine,
-            endLine: n.endLine,
-            language: 'JavaScript/TypeScript',
-            hasIssue: (data.findings as any[]).some((fi: any) => fi.nodeId === n.id || (fi.filePath === n.filePath && fi.line >= n.startLine && fi.line <= n.endLine)),
-            issueCount: (data.findings as any[]).filter((fi: any) => fi.nodeId === n.id || (fi.filePath === n.filePath && fi.line >= n.startLine && fi.line <= n.endLine)).length,
-            calledBy: ((n.callerIds || []) as any[]).map((cid: any) => String(cid).split(':').pop() || String(cid)),
-            calls: ((n.calleeIds || []) as any[]).map((cid: any) => ({ functionName: String(cid).split(':').pop() || String(cid), file: String(cid).split(':')[1] || String(cid) })),
-          }))
+    const fetchCurrentReport = async () => {
+      try {
+        const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+        const headers: Record<string, string> = { Accept: 'application/json' }
+        if (token) headers['x-viecodie-token'] = token
 
-          const adaptedEdges = (data.edges as any[]).map((e: any) => ({
-            id: e.id,
-            sourceNodeId: e.sourceId,
-            targetNodeId: e.targetId,
-            type: e.type === 'call' ? ('call' as const) : ('cross_file' as const),
-            label: e.evidenceSnippet ? e.evidenceSnippet.slice(0, 30) : undefined,
-          }))
+        const res = await fetch(`/api/review/current${queryToken}`, { headers })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!data || (!data.nodes && !data.findings && !data.scanScope)) return
 
-          const adaptedFindings = (data.findings as any[]).map((f: any) => ({
+        const adaptedFindings = (data.findings as any[] || []).map((f: any) => {
+          const fileName = f.filePath?.split(/[\\/]/).pop() || f.filePath
+          return {
             id: f.id,
-            file: f.filePath?.split(/[\\/]/).pop() || f.filePath,
+            file: fileName,
             line: f.line,
             endLine: f.endLine,
             severity: f.severity,
@@ -77,40 +66,122 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
             },
             source: f.source || 'rule',
             status: 'open' as const,
-          }))
+          }
+        })
 
-          const uniqueFiles = Array.from(new Set((data.scanScope?.filesRead || []) as string[]))
-          const adaptedFiles = uniqueFiles.map((fp: string) => {
-            const fileName = fp.split(/[\\/]/).pop() || fp
-            const issueCount = adaptedFindings.filter((af: any) => af.file === fileName || af.file.endsWith(fileName)).length
-            return {
-              name: fileName,
-              lineCount: 25,
-              issueCount,
-              status: issueCount > 0 ? `${issueCount} vấn đề` : 'Sạch',
-            }
+        // Keep function nodes (filter out pure file-level nodes)
+        const rawFuncNodes = ((data.nodes as any[]) || []).filter(
+          (n: any) => n.type === 'function' || (!n.type && !String(n.id).startsWith('file:'))
+        )
+        const adaptedNodes = rawFuncNodes.map((n: any) => {
+          const fileName = n.filePath?.split(/[\\/]/).pop() || n.filePath || 'file'
+          const matchingFindings = adaptedFindings.filter(
+            (fi: any) => fi.id === n.id || (fi.file === fileName && fi.line >= n.startLine && fi.line <= n.endLine)
+          )
+          return {
+            id: n.id,
+            file: fileName,
+            functionName: n.name,
+            startLine: n.startLine,
+            endLine: n.endLine,
+            language: n.filePath?.endsWith('.ts') || n.filePath?.endsWith('.tsx') ? 'TypeScript' : 'JavaScript',
+            hasIssue: matchingFindings.length > 0,
+            issueCount: matchingFindings.length,
+            calledBy: ((n.callerIds || []) as any[]).map((cid: any) => String(cid).split(':').pop() || String(cid)),
+            calls: ((n.calleeIds || []) as any[]).map((cid: any) => ({
+              functionName: String(cid).split(':').pop() || String(cid),
+              file: String(cid).split(':')[1] || String(cid),
+            })),
+          }
+        })
+
+        const adaptedEdges = ((data.edges as any[]) || []).map((e: any) => ({
+          id: e.id,
+          sourceNodeId: e.sourceId,
+          targetNodeId: e.targetId,
+          type: e.type === 'call' ? ('call' as const) : ('cross_file' as const),
+          label: e.evidenceSnippet ? e.evidenceSnippet.slice(0, 30) : undefined,
+        }))
+
+        // Collect all unique file names
+        const fileNamesSet = new Set<string>()
+        if (Array.isArray(data.scanScope?.filesRead)) {
+          data.scanScope.filesRead.forEach((fp: string) => {
+            fileNamesSet.add(fp.split(/[\\/]/).pop() || fp)
           })
-
-          setProject((prev) => ({
-            ...prev,
-            projectName: data.projectName || prev.projectName,
-            revision: typeof data.revision === 'string' ? 1 : (data.revision || prev.revision),
-            files: adaptedFiles.length > 0 ? adaptedFiles : prev.files,
-            nodes: adaptedNodes.length > 0 ? adaptedNodes : prev.nodes,
-            edges: adaptedEdges.length > 0 ? adaptedEdges : prev.edges,
-            findings: adaptedFindings.length > 0 ? adaptedFindings : prev.findings,
-          }))
-
-          if (adaptedNodes.length > 0) {
-            setSelectedNodeId(adaptedNodes[0].id)
-            if (adaptedNodes[0].file) setActiveFile(adaptedNodes[0].file)
-          }
-          if (adaptedFindings.length > 0) {
-            setSelectedFindingId(adaptedFindings[0].id)
-          }
         }
-      })
-      .catch(() => {})
+        adaptedNodes.forEach((n: any) => fileNamesSet.add(n.file))
+        adaptedFindings.forEach((f: any) => fileNamesSet.add(f.file))
+        const uniqueFileNames = Array.from(fileNamesSet)
+
+        let fileContents: Record<string, string> = data.fileContents || {}
+
+        // Fallback fetch file contents via /api/review/source if not already included
+        if (Object.keys(fileContents).length === 0 && uniqueFileNames.length > 0) {
+          const fetched: Record<string, string> = {}
+          await Promise.all(
+            uniqueFileNames.map(async (fn) => {
+              try {
+                const sRes = await fetch(`/api/review/source?path=${encodeURIComponent(fn)}${queryToken.replace('?', '&')}`, { headers })
+                if (sRes.ok) {
+                  const sJson = await sRes.json()
+                  if (sJson?.content) {
+                    fetched[fn] = sJson.content
+                  }
+                }
+              } catch {}
+            })
+          )
+          fileContents = fetched
+        }
+
+        const adaptedFiles = uniqueFileNames.map((fileName) => {
+          const content = fileContents[fileName] || ''
+          const lineCount = content ? content.split('\n').length : 30
+          const issueCount = adaptedFindings.filter((af: any) => af.file === fileName).length
+          return {
+            name: fileName,
+            lineCount,
+            issueCount,
+            status: issueCount > 0 ? `${issueCount} vấn đề` : 'Sạch',
+          }
+        })
+
+        setProject({
+          projectName: data.projectName || 'viecodie-review',
+          revision: typeof data.revision === 'string' ? 1 : (data.revision || 1),
+          engineStatus: 'ready',
+          files: adaptedFiles.length > 0 ? adaptedFiles : DEMO_PROJECT_FIXTURE.files,
+          nodes: adaptedNodes.length > 0 ? adaptedNodes : DEMO_PROJECT_FIXTURE.nodes,
+          edges: adaptedEdges.length > 0 ? adaptedEdges : DEMO_PROJECT_FIXTURE.edges,
+          findings: adaptedFindings.length > 0 ? adaptedFindings : DEMO_PROJECT_FIXTURE.findings,
+          fileContents: Object.keys(fileContents).length > 0 ? fileContents : DEMO_PROJECT_FIXTURE.fileContents,
+        })
+
+        // Prioritize first file with issues
+        const firstFileWithIssue = adaptedFiles.find((f) => f.issueCount > 0)?.name || adaptedFiles[0]?.name
+        if (firstFileWithIssue) {
+          setActiveFile(firstFileWithIssue)
+          const nodeInFile = adaptedNodes.find((n) => n.file === firstFileWithIssue)
+          if (nodeInFile) {
+            setSelectedNodeId(nodeInFile.id)
+          } else if (adaptedNodes.length > 0) {
+            setSelectedNodeId(adaptedNodes[0].id)
+          }
+        } else if (adaptedNodes.length > 0) {
+          setSelectedNodeId(adaptedNodes[0].id)
+          if (adaptedNodes[0].file) setActiveFile(adaptedNodes[0].file)
+        }
+
+        if (adaptedFindings.length > 0) {
+          setSelectedFindingId(adaptedFindings[0].id)
+        }
+      } catch (err) {
+        console.error('Error fetching review report:', err)
+      }
+    }
+
+    fetchCurrentReport()
   }, [])
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId)

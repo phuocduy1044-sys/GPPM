@@ -6,11 +6,13 @@
 const KEY = 'viecodie-token'
 
 function readToken(): string | null {
-  const m = location.hash.match(/token=([\w-]+)/)
-  if (m) {
-    try { sessionStorage.setItem(KEY, m[1]) } catch { /* private mode — keep it in memory */ }
-    history.replaceState(null, '', location.pathname + location.search)
-    return m[1]
+  const mHash = location.hash.match(/token=([\w-]+)/)
+  const mSearch = location.search.match(/[?&]token=([\w-]+)/)
+  const val = mHash?.[1] || mSearch?.[1]
+  if (val) {
+    try { sessionStorage.setItem(KEY, val) } catch { /* private mode — keep it in memory */ }
+    history.replaceState(null, '', location.pathname)
+    return val
   }
   try { return sessionStorage.getItem(KEY) } catch { return null }
 }

@@ -3,6 +3,6 @@
 *.log
 .DS_Store
 .claude
-.viecodie/permissions.json
-.viecodie/output
+.viecodie/
+*.tgz
 .vitest-*
