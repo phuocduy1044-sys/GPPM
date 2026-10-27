@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { Box, Text } from 'ink'
 import type { Effort } from '../config.js'
-import { WELCOME_COMMANDS, WELCOME_PROMPT, SECURITY_WARNING_TITLE, SECURITY_WARNING_NOTICE } from './constants.js'
+import { WELCOME_COMMANDS, WELCOME_PROMPT } from './constants.js'
 import { useTerminalWidth } from './hooks/useTerminalWidth.js'
 import { C } from './theme.js'
 
@@ -133,7 +133,6 @@ export const WelcomeBlock = memo(function WelcomeBlock({
           <Text color={C.blue} bold>{MARK} Viecodie</Text>
           <StatusRow parts={parts} />
           <Text dimColor>{cwd}</Text>
-          <Text color={C.yellow}>⚠ {SECURITY_WARNING_NOTICE}</Text>
         </Box>
         {updateAvailable && (
           <Text color={updateColor}>{updateBannerText(updateAvailable, updateStatus)}</Text>
@@ -197,16 +196,7 @@ export const WelcomeBlock = memo(function WelcomeBlock({
           ))}
         </Box>
 
-        <Box
-          flexDirection="column"
-          marginTop={1}
-          paddingX={1}
-          borderStyle="single"
-          borderColor={C.yellow}
-        >
-          <Text color={C.yellow} bold>⚠ {SECURITY_WARNING_TITLE}</Text>
-          <Text color={C.yellow}>{SECURITY_WARNING_NOTICE}</Text>
-        </Box>
+        
 
       </Box>
 
