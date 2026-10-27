@@ -469,30 +469,18 @@ export async function handleGraphCommand(
   try {
     let rep = getCurrentReport()
 
-    const rootResolved = rep?.projectRoot ? resolve(rep.projectRoot) : ''
-    const cwdResolved = resolve(cwd)
-    const isMatch = !!rep && (
-      !rootResolved ||
-      rootResolved === cwdResolved ||
-      rootResolved.startsWith(cwdResolved) ||
-      cwdResolved.startsWith(rootResolved)
-    )
-
-    if (!rep || !isMatch) {
-      report([
-        `⚠ **Chưa có kết quả review cho dự án hiện tại (${basename(cwd)}).**`,
-        '',
-        'CLI là nơi làm việc chính. Hãy yêu cầu phân tích mã nguồn trước bằng lệnh:',
-        '👉 `/review`',
-        '',
-        'Sau khi CLI phân tích xong, bạn chỉ cần nhập `/graph` để mở đồ thị trực quan!',
-      ].join('\n'))
-      return
+    // If no report exists yet, auto-run review on current directory
+    if (!rep) {
+      setNotice('🔍 Đang phân tích mã nguồn và dựng đồ thị gọi hàm...')
+      rep = await reviewProject({ projectRoot: cwd, mode: 'rules' })
+      setCurrentReport(rep)
     }
+
+    const targetDir = rep.projectRoot ? resolve(rep.projectRoot) : resolve(cwd)
 
     // 1. Dựng bổ sung Graph nếu report chưa có nodes/edges mà không gọi lại AI
     if (!rep.nodes || rep.nodes.length === 0) {
-      const scanDir = rep.projectRoot || cwd
+      const scanDir = targetDir
       const scope = scanProject(scanDir)
       const ast = buildAstGraph(scope.files)
       rep.nodes = ast.nodes
@@ -522,7 +510,7 @@ export async function handleGraphCommand(
 
     // 3. Khởi động hoặc tái sử dụng Web Server localhost
     setNotice('Đang khởi động giao diện Code Reviewer by Graph...')
-    const { url } = await getOrStartCliWebServer(cwd)
+    const { url } = await getOrStartCliWebServer(targetDir)
     openBrowser(url)
 
     const outdatedNotice = isOutdated
