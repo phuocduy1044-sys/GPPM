@@ -1,5 +1,30 @@
 # Changelog
 
+## [3.14.0](https://github.com/phuocduy1044-sys/GPPM/compare/viecodie-agent-v3.13.1...viecodie-agent-v3.14.0) (2026-10-27)
+
+
+### Features
+
+* **cli,web:** implement CLI-first workflow with /review and /graph slash commands ([95e243d](https://github.com/phuocduy1044-sys/GPPM/commit/95e243d9bd130673bf292b7ac615fcfdc4cc2861))
+* **cli:** 100% CLI mind map graph view with error annotations and no web dependencies ([e860c77](https://github.com/phuocduy1044-sys/GPPM/commit/e860c7701e1d1de3eaf0be25baea781a37516054))
+* **contract:** add Review Engine Contract v1, sample report and API specs ([491f6a4](https://github.com/phuocduy1044-sys/GPPM/commit/491f6a45ab736da0bc84b12737621dbbc5b39b49))
+* **integration:** connect ReviewerLayout UI to live backend review endpoints ([680fa0d](https://github.com/phuocduy1044-sys/GPPM/commit/680fa0d759a245ad5a18bad3d7d208e40438b5ee))
+* **review-graph:** bind live CLI review data to Web Reviewer with dynamic layout and token auth ([00ccd10](https://github.com/phuocduy1044-sys/GPPM/commit/00ccd103436863e008a1e0e43211678b395e604d))
+* **review,ui:** expand AST rules (secrets, loose eq, var), enhance UI caller/callee highlight and achieve 729/733 tests pass ([a93ea49](https://github.com/phuocduy1044-sys/GPPM/commit/a93ea49b2f5dd05bf31f273b086d4a6707946670))
+* **review:** implement core review engine, CLI review & verify, and demo project ([98b8709](https://github.com/phuocduy1044-sys/GPPM/commit/98b8709d1d2b1a1e6db47891549ab81e1c1ea316))
+* **review:** support custom requirements, context folder fallback, and notification when no folder exists ([1ad1266](https://github.com/phuocduy1044-sys/GPPM/commit/1ad12668c30456f11a878187e6762bcd89eaf088))
+* **security,ui:** eliminate demo fallback, mask hardcoded secrets and implement loopback session cookie auth ([0155fa4](https://github.com/phuocduy1044-sys/GPPM/commit/0155fa4626bcfaddd11d360a43bf89e6994a92ca))
+* **ui:** reconnect /graph command to open Web Code Reviewer by Graph ([c187547](https://github.com/phuocduy1044-sys/GPPM/commit/c1875478169d9a327d670b8a0ac026be3c9d7fc6))
+* **web,docs:** implement Code Reviewer by Graph UI and complete open source documentation suite ([c121fe9](https://github.com/phuocduy1044-sys/GPPM/commit/c121fe9faab100176a32f55d8ce69b71af2a7cb1))
+
+
+### Bug Fixes
+
+* **review:** auto-detect folder from context when running bare /review ([6715bb8](https://github.com/phuocduy1044-sys/GPPM/commit/6715bb8a2fd52b8942dab10fceaa1c76f336a0ea))
+* **ui:** eliminate flicker in command palette navigation and first input blink ([7d139fc](https://github.com/phuocduy1044-sys/GPPM/commit/7d139fce860ce26ad889bca23e6573a7af8c5fcc))
+* **ux:** 2-mode permissions, Vietnamese IME (Telex/VNI) & screen flicker ([469658a](https://github.com/phuocduy1044-sys/GPPM/commit/469658a84fab752056c31bb08388deb7d4d7dcdc))
+* **windows:** resolve Windows file locks, EPERM, path normalization and achieve 728/732 tests passing ([6a0504d](https://github.com/phuocduy1044-sys/GPPM/commit/6a0504dca07992c990d791bc76a33843932218dc))
+
 ## [3.13.1](https://github.com/maruakshay/viecodie-cli/compare/viecodie-agent-v3.13.0...viecodie-agent-v3.13.1) (2026-10-21)
 
 
