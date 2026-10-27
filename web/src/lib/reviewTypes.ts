@@ -3,6 +3,7 @@ export type FindingCategory = 'security' | 'bug' | 'style' | 'maintainability'
 
 export interface Finding {
   id: string
+  patchId?: string
   file: string
   line: number
   endLine?: number
@@ -14,6 +15,7 @@ export interface Finding {
   rootCause: string
   triggerCondition: string
   suggestedFix: string
+  canPatch?: boolean
   patch?: {
     original: string
     replacement: string
@@ -48,26 +50,40 @@ export interface GraphEdge {
   label?: string
 }
 
+export interface TestCase {
+  name: string
+  status: 'passed' | 'failed' | 'skipped'
+  durationMs?: number
+  failureMessage?: string
+}
+
 export interface TestResult {
-  status: 'not_run' | 'running' | 'passed' | 'failed' | 'error' | 'timed_out'
-  totalTests: number
-  failedTests: number
-  durationMs: number
-  score?: string
+  status: 'not_run' | 'running' | 'passed' | 'failed' | 'error' | 'timed_out' | 'cancelled' | 'no_tests' | 'stale' | 'unsupported'
+  totalTests?: number | null
+  failedTests?: number | null
+  passedTests?: number | null
+  durationMs?: number | null
+  score?: string | null
   command: string
-  exitCode: number
+  exitCode: number | null
   logOutput: string
+  tests?: TestCase[]
 }
 
 export interface ReviewProject {
   projectName: string
-  revision: number
+  revision: string | number
   engineStatus: 'ready' | 'not_connected' | 'analyzing'
   files: { name: string; lineCount: number; issueCount: number; status: string }[]
   nodes: GraphNode[]
   edges: GraphEdge[]
   findings: Finding[]
+  patches?: Record<string, any>
   testResult?: TestResult
   fileContents?: Record<string, string>
   isOutdated?: boolean
+  projectRoot?: string
+  reviewId?: string
+  projectId?: string
+  rawRevision?: string
 }

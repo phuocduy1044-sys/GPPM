@@ -628,7 +628,7 @@ export function App({ resumeId, continueLast }: AppProps) {
                   notice
                     ? (notice.startsWith('✓') || notice.startsWith('⚠') ? notice : `✓ ${notice}`)
                     : providerDown
-                    ? 'provider unavailable — /provider to switch · /models to pick a model'
+                    ? 'provider unavailable — dùng /models để đổi nhà cung cấp hoặc chọn mô hình'
                     : mouseOn
                       ? undefined
                       : 'mouse off — drag to select and copy · ctrl+s to scroll with the wheel again'

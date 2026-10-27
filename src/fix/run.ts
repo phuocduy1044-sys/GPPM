@@ -27,6 +27,7 @@ import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from '
 import { newSessionId, persistSession } from '../session/store.js'
 import type { AgentEvent, MiiMessage } from '../agent/types.js'
 import { digest, improved, type CheckResult, type Digest } from './digest.js'
+import { defaultRunnerService, discoverChecks } from '../runner/index.js'
 import { RoundSnapshot, fingerprint, fingerprintDiff } from './snapshot.js'
 
 export interface FixOptions {
@@ -55,6 +56,15 @@ const DEFAULTS = { maxRounds: 5, maxTurns: 20, maxStalls: 3, checkTimeout: 600 }
 
 /** The test command a project most plausibly means, from the files it has. */
 export function detectCheck(cwd: string): string | null {
+  // 1. Consult unified runner discovery without executing untrusted code
+  try {
+    const manifest = discoverChecks(cwd);
+    if (manifest && manifest.suggestedCheckCommand) {
+      return manifest.suggestedCheckCommand;
+    }
+  } catch {}
+
+  // 2. Fallbacks for explicit manifests
   const pkgPath = join(cwd, 'package.json')
   if (existsSync(pkgPath)) {
     try {
@@ -166,35 +176,21 @@ export function parseFixArgs(argv: string[], cwd = process.cwd()): FixParse {
 const MAX_CHECK_OUTPUT = 256 * 1024
 
 export async function runCheck(command: string, cwd: string, timeoutSec: number, signal?: AbortSignal): Promise<CheckResult> {
-  const isWin = process.platform === 'win32'
-  const started = Date.now()
-  const child = execa(isWin ? 'cmd' : 'bash', isWin ? ['/c', command] : ['-c', command], {
-    cwd,
-    reject: false,
-    all: true,
-    detached: !isWin,
-    // CI=1 turns off watch modes and interactive reporters in most runners —
-    // `vitest` without it waits for file changes forever.
-    env: { ...process.env, ...settingsEnv(), CI: process.env.CI ?? '1', FORCE_COLOR: '0' },
-  })
-  let timedOut = false
-  const kill = () => {
-    try {
-      if (isWin) execa('taskkill', ['/pid', String(child.pid), '/T', '/F'], { reject: false })
-      else if (child.pid) process.kill(-child.pid, 'SIGKILL')
-    } catch { /* already gone */ }
-  }
-  const timer = setTimeout(() => { timedOut = true; kill() }, timeoutSec * 1000)
-  signal?.addEventListener('abort', kill, { once: true })
-  try {
-    const { all, exitCode } = await child
-    let output = all ?? ''
-    if (output.length > MAX_CHECK_OUTPUT) output = '…\n' + output.slice(-MAX_CHECK_OUTPUT)
-    return { exitCode: exitCode ?? null, output, timedOut, durationMs: Date.now() - started }
-  } finally {
-    clearTimeout(timer)
-    signal?.removeEventListener('abort', kill)
-  }
+  const result = await defaultRunnerService.execute({
+    projectRoot: cwd,
+    command,
+    timeoutSec,
+    signal,
+    env: settingsEnv(),
+  });
+  let output = result.sanitizedLog || result.stdout || result.stderr;
+  if (output.length > MAX_CHECK_OUTPUT) output = '…\n' + output.slice(-MAX_CHECK_OUTPUT);
+  return {
+    exitCode: result.exitCode,
+    output,
+    timedOut: result.status === 'timed_out',
+    durationMs: result.durationMs,
+  };
 }
 
 export interface Attempt {

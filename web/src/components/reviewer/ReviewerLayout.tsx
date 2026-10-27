@@ -14,7 +14,7 @@ import {
   IconSparkles,
 } from '@tabler/icons-react'
 import type { ReviewProject, Finding } from '@/lib/reviewTypes'
-import { token } from '@/lib/api'
+import { token, reviewSessionId } from '@/lib/api'
 import { GraphReview } from './GraphReview'
 import { CodeReview } from './CodeReview'
 import { RightPanel } from './RightPanel'
@@ -41,11 +41,15 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
     setErrorMessage(null)
 
     try {
-      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const queryToken = token ? `token=${encodeURIComponent(token)}` : ''
+      const querySession = reviewSessionId ? `session=${encodeURIComponent(reviewSessionId)}` : ''
+      const qParams = [queryToken, querySession].filter(Boolean).join('&')
+      const queryString = qParams ? `?${qParams}` : ''
       const headers: Record<string, string> = { Accept: 'application/json' }
       if (token) headers['x-viecodie-token'] = token
+      if (reviewSessionId) headers['x-viecodie-session-id'] = reviewSessionId
 
-      const res = await fetch(`/api/review/current${queryToken}`, { headers })
+      const res = await fetch(`/api/review/current${queryString}`, { headers })
 
       if (res.status === 404) {
         setLoadStatus('error')
@@ -83,7 +87,7 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
 
       // 1. Adapt findings
       const adaptedFindings = (data.findings as any[] || []).map((f: any) => {
-        const fileName = f.filePath?.split(/[\\/]/).pop() || f.filePath
+        const fileName = f.filePath?.replace(/\\/g, '/') || 'file'
         return {
           id: f.id,
           file: fileName,
@@ -113,7 +117,7 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
         (n: any) => n.type === 'function' || (!n.type && !String(n.id).startsWith('file:'))
       )
       const adaptedNodes = rawFuncNodes.map((n: any) => {
-        const fileName = n.filePath?.split(/[\\/]/).pop() || n.filePath || 'file'
+        const fileName = n.filePath?.replace(/\\/g, '/') || 'file'
         const matchingFindings = adaptedFindings.filter(
           (fi: any) => fi.id === n.id || (fi.file === fileName && fi.line >= n.startLine && fi.line <= n.endLine)
         )
@@ -147,7 +151,7 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
       const fileNamesSet = new Set<string>()
       if (Array.isArray(data.scanScope?.filesRead)) {
         data.scanScope.filesRead.forEach((fp: string) => {
-          fileNamesSet.add(fp.split(/[\\/]/).pop() || fp)
+          fileNamesSet.add(fp.replace(/\\/g, '/'))
         })
       }
       adaptedNodes.forEach((n: any) => fileNamesSet.add(n.file))
@@ -189,7 +193,10 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
 
       const proj: ReviewProject = {
         projectName: data.projectName || 'Dự án hiện tại',
-        revision: typeof data.revision === 'string' ? 1 : (data.revision || 1),
+        revision: data.revision || '1',
+        rawRevision: String(data.revision || '1'),
+        projectRoot: data.projectRoot || '',
+        reviewId: data.reviewId || '',
         engineStatus: 'ready',
         files: adaptedFiles,
         nodes: adaptedNodes,
@@ -198,14 +205,16 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
         fileContents,
         isOutdated: Boolean(data.isOutdated),
         testResult: data.verification ? {
-          status: data.verification.status === 'passed' ? 'passed' : 'failed',
-          totalTests: data.verification.testsSummary?.total ?? 1,
-          failedTests: data.verification.testsSummary?.failed ?? (data.verification.status === 'passed' ? 0 : 1),
+          status: data.verification.status || (data.verification.exitCode === 0 ? 'passed' : 'failed'),
+          totalTests: data.verification.testsSummary?.total ?? null,
+          passedTests: data.verification.testsSummary?.passed ?? null,
+          failedTests: data.verification.testsSummary?.failed ?? null,
           durationMs: data.verification.durationMs || 0,
           command: data.verification.command || 'npm test',
-          exitCode: data.verification.exitCode ?? (data.verification.status === 'passed' ? 0 : 1),
+          exitCode: data.verification.exitCode,
           logOutput: data.verification.sanitizedLog || data.verification.stdout || data.verification.stderr || 'Hoàn tất kiểm thử',
-          score: data.verification.status === 'passed' ? '100/100' : '0/100',
+          score: data.verification.testsSummary ? `${data.verification.testsSummary.passed}/${data.verification.testsSummary.total}` : null,
+          tests: data.verification.tests || [],
         } : undefined,
       }
 
@@ -293,13 +302,38 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
     }
   }
 
+  const handleUndoPatch = async (findingId: string) => {
+    const finding = project?.findings.find((f) => f.id === findingId)
+    const patchId = finding?.patchId
+    const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+    const session = reviewSessionId ? `&session=${encodeURIComponent(reviewSessionId)}` : ''
+    const fullQuery = queryToken ? `${queryToken}${session}` : (session ? `?${session.slice(1)}` : '')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers['x-viecodie-token'] = token
+    if (reviewSessionId) headers['x-viecodie-session-id'] = reviewSessionId
+
+    const res = await fetch(`/api/review/undo${fullQuery}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ patchId, confirm: true }),
+    })
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Hoàn tác bản vá thất bại')
+    }
+    await fetchCurrentReport()
+  }
+
   // Handle re-run verification tests
   const handleRunTest = async () => {
     if (!project) return
     try {
       const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const session = reviewSessionId ? `&session=${encodeURIComponent(reviewSessionId)}` : ''
+      const fullQuery = queryToken ? `${queryToken}${session}` : (session ? `?${session.slice(1)}` : '')
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers['x-viecodie-token'] = token
+      if (reviewSessionId) headers['x-viecodie-session-id'] = reviewSessionId
 
       setProject((prev) => {
         if (!prev) return prev
@@ -307,17 +341,18 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
           ...prev,
           testResult: {
             status: 'running',
-            totalTests: prev.testResult?.totalTests || 1,
-            failedTests: 0,
+            totalTests: prev.testResult?.totalTests ?? null,
+            passedTests: null,
+            failedTests: null,
             durationMs: 0,
             command: 'npm test',
-            exitCode: 0,
+            exitCode: null,
             logOutput: '⏳ Đang thực thi bộ kiểm thử (npm test)...',
           },
         }
       })
 
-      const res = await fetch(`/api/review/verify${queryToken}`, {
+      const res = await fetch(`/api/review/verify${fullQuery}`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ checkCommand: 'npm test', confirm: true }),
@@ -330,14 +365,16 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
           return {
             ...prev,
             testResult: {
-              status: v.status === 'passed' ? 'passed' : 'failed',
-              totalTests: v.testsSummary?.total ?? 1,
-              failedTests: v.testsSummary?.failed ?? (v.status === 'passed' ? 0 : 1),
+              status: v.status || (v.exitCode === 0 ? 'passed' : 'failed'),
+              totalTests: v.testsSummary?.total ?? null,
+              passedTests: v.testsSummary?.passed ?? null,
+              failedTests: v.testsSummary?.failed ?? null,
               durationMs: v.durationMs || 0,
-              score: v.status === 'passed' ? '100/100' : '0/100',
+              score: v.testsSummary ? `${v.testsSummary.passed}/${v.testsSummary.total}` : null,
               command: v.command || 'npm test',
-              exitCode: v.exitCode ?? (v.status === 'passed' ? 0 : 1),
+              exitCode: v.exitCode,
               logOutput: v.sanitizedLog || v.stdout || v.stderr || 'Hoàn tất kiểm thử',
+              tests: v.tests || [],
             },
           }
         })
@@ -351,14 +388,18 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
   const handleReReview = async () => {
     setReReviewing(true)
     try {
-      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const queryToken = token ? `token=${encodeURIComponent(token)}` : ''
+      const querySession = reviewSessionId ? `session=${encodeURIComponent(reviewSessionId)}` : ''
+      const qParams = [queryToken, querySession].filter(Boolean).join('&')
+      const queryString = qParams ? `?${qParams}` : ''
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers['x-viecodie-token'] = token
+      if (reviewSessionId) headers['x-viecodie-session-id'] = reviewSessionId
 
-      const res = await fetch(`/api/review${queryToken}`, {
+      const res = await fetch(`/api/review${queryString}`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ mode: 'rules' }),
+        body: JSON.stringify({ mode: 'rules', projectPath: project?.projectRoot }),
       })
       if (res.ok) {
         await fetchCurrentReport()
@@ -698,12 +739,18 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
             <GraphReview
               nodes={project.nodes}
               edges={project.edges}
+              findings={project.findings}
+              projectName={project.projectName}
+              projectRoot={project.projectRoot}
+              revision={project.rawRevision || String(project.revision)}
+              isOutdated={project.isOutdated}
               selectedNodeId={selectedNodeId}
               onSelectNode={handleSelectNode}
               onAnalyzeFile={(file) => {
                 setActiveFile(file)
                 setActiveTab('code')
               }}
+              onReReview={handleReReview}
             />
           ) : (
             <CodeReview
@@ -728,12 +775,16 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
         <RightPanel
           selectedNode={selectedNode}
           selectedFinding={selectedFinding}
+          findings={project.findings}
+          testResult={project.testResult}
           onApplyPatch={handleApplyPatch}
+          onUndoPatch={handleUndoPatch}
           onAnalyzeFile={(file) => {
             setActiveFile(file)
             setActiveTab('code')
           }}
           onRunTest={handleRunTest}
+          onSelectFinding={(id) => setSelectedFindingId(id)}
         />
       </div>
     </div>

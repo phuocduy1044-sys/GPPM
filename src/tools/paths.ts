@@ -8,8 +8,12 @@ import { homedir } from 'os'
  *  dir is app-owned and auto-cleaned on startup. */
 const SPILL_DIR = resolve(join(homedir(), '.viecodie', 'output'))
 
-function isUnder(parent: string, child: string): boolean {
-  const rel = relative(parent, child)
+export function isUnder(parent: string, child: string): boolean {
+  const normParent = resolve(parent)
+  const normChild = resolve(child)
+  const p = process.platform === 'win32' ? normParent.toLowerCase() : normParent
+  const c = process.platform === 'win32' ? normChild.toLowerCase() : normChild
+  const rel = relative(p, c)
   return rel === '' || (!rel.startsWith('..' + sep) && rel !== '..' && !isAbsolute(rel))
 }
 
@@ -45,15 +49,53 @@ function realOrSelf(p: string): string {
 }
 
 /**
- * Resolve a tool-supplied path against the current working directory and reject
- * any path that escapes it. Returns the absolute, confined path.
+ * Confine a path strictly to a given root directory.
+ * Disallows traversal (`..`), sibling folder prefixes, absolute paths outside root,
+ * and any symlinks/junctions resolving outside the root directory.
+ */
+export function confineToRoot(p: string, rootDir: string): string {
+  if (typeof p !== 'string' || p.length === 0) {
+    throw new Error('I need a file path here, but none was given.')
+  }
+  const root = resolve(rootDir)
+  const abs = resolve(root, p)
+  const outside = new Error(`"${p}" sits outside the project directory (${root}), so I can't touch it. Stay within the project folder.`)
+  if (!isUnder(root, abs)) throw outside
+  let real: string
+  try {
+    real = realTarget(abs)
+  } catch {
+    throw new Error(`"${p}" is a link to somewhere that does not exist, so I can't touch it.`)
+  }
+  if (isUnder(realOrSelf(root), real)) return abs
+  throw outside
+}
+
+/**
+ * Safe boolean check for whether a path is contained strictly within a root directory.
+ */
+export function isPathContained(p: string, rootDir: string): boolean {
+  try {
+    confineToRoot(p, rootDir)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Resolve a tool-supplied path against the current working directory (or explicit root)
+ * and reject any path that escapes it. Returns the absolute, confined path.
  *
  * Blocks `../` traversal, absolute paths outside cwd, and symlinks — inside the
  * project or not yet created — whose target is outside it: the check is made on
  * where the path really lands, not how it is spelled. Throws a clear Error the
  * tool turns into an is_error result.
  */
-export function confinePath(p: string): string {
+export function confinePath(p: string, rootDir?: string): string {
+  if (rootDir && rootDir !== process.cwd()) {
+    return confineToRoot(p, rootDir)
+  }
   if (typeof p !== 'string' || p.length === 0) {
     throw new Error('I need a file path here, but none was given.')
   }

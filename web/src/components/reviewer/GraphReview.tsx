@@ -2,28 +2,48 @@ import { useState, useRef, useMemo } from 'react'
 import {
   IconArrowBackUp,
   IconArrowsMaximize,
+  IconBuildingSkyscraper,
+  IconDownload,
+  IconFileCode,
   IconFocus2,
+  IconInfoCircle,
   IconMinus,
   IconPlus,
   IconSearch,
   IconTestPipe,
+  IconX,
+  IconAlertCircle,
+  IconCheck,
+  IconRefresh,
 } from '@tabler/icons-react'
-import type { GraphNode, GraphEdge } from '@/lib/reviewTypes'
+import type { GraphNode, GraphEdge, Finding } from '@/lib/reviewTypes'
 
 interface GraphReviewProps {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  findings?: Finding[]
+  projectName?: string
+  projectRoot?: string
+  revision?: string
+  isOutdated?: boolean
   selectedNodeId?: string
   onSelectNode: (nodeId: string) => void
   onAnalyzeFile?: (file: string) => void
+  onReReview?: () => void
 }
 
 export function GraphReview({
   nodes,
   edges,
+  findings = [],
+  projectName = 'Dự án',
+  projectRoot = '',
+  revision = '1',
+  isOutdated = false,
   selectedNodeId,
   onSelectNode,
   onAnalyzeFile,
+  onReReview,
 }: GraphReviewProps) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 40, y: 30 })
@@ -31,6 +51,8 @@ export function GraphReview({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [filterIssueOnly, setFilterIssueOnly] = useState(false)
+  const [showLegend, setShowLegend] = useState(true)
+  const [showNodeDetails, setShowNodeDetails] = useState(true)
   const svgRef = useRef<SVGSVGElement>(null)
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId)
@@ -48,6 +70,18 @@ export function GraphReview({
     if (n.id === selectedNodeId) return true
     return isCaller(n.functionName) || isCallee(n.functionName)
   }
+
+  // Findings matching the selected node
+  const selectedNodeFindings = useMemo(() => {
+    if (!selectedNode) return []
+    return findings.filter(
+      (f) =>
+        f.id === selectedNode.id ||
+        (f.file === selectedNode.file &&
+          f.line >= selectedNode.startLine &&
+          f.line <= selectedNode.endLine)
+    )
+  }, [selectedNode, findings])
 
   // Filter nodes matching search & filter
   const matchedNodeIds = new Set(
@@ -89,8 +123,8 @@ export function GraphReview({
     return groups
   }, [nodes])
 
-  // 2. Compute dynamic layout for file containers and node positions
-  const { fileContainers, nodePositions, firstFileWithIssue } = useMemo(() => {
+  // 2. Compute dynamic tree layout: Project Root -> File Containers -> Function Nodes
+  const { projectNode, fileContainers, nodePositions, firstFileWithIssue, canvasBounds } = useMemo(() => {
     const containers: Array<{
       name: string
       lang: string
@@ -99,31 +133,44 @@ export function GraphReview({
       width: number
       height: number
       hasIssue: boolean
+      issueCount: number
+      highestSeverity: 'critical' | 'high' | 'medium' | 'low' | 'clean'
+      nodesCount: number
     }> = []
     const positions: Record<string, { x: number; y: number; width: number; height: number; file: string }> = {}
 
-    const containerWidth = 220
-    const containerSpacing = 50
-    const startX = 40
-    const startY = 100
-    const nodeHeight = 44
+    const containerWidth = 240
+    const containerSpacing = 60
+    const startX = 60
+    const startY = 160
+    const nodeHeight = 50
     const nodeGap = 12
-    const headerHeight = 52
-    const bottomPadding = 16
+    const headerHeight = 56
+    const bottomPadding = 18
 
     let fileIdx = 0
     let firstIssueFile: string | null = null
+    let maxBottomY = startY
 
     for (const [fileName, fileNodes] of fileGroups.entries()) {
       const count = fileNodes.length
-      const containerHeight = Math.max(130, headerHeight + count * (nodeHeight + nodeGap) - nodeGap + bottomPadding)
+      const containerHeight = Math.max(140, headerHeight + count * (nodeHeight + nodeGap) - nodeGap + bottomPadding)
       const containerX = startX + fileIdx * (containerWidth + containerSpacing)
       const containerY = startY
 
-      const hasFileIssue = fileNodes.some((n) => n.hasIssue)
+      const fileFindings = findings.filter((f) => f.file === fileName)
+      const hasFileIssue = fileNodes.some((n) => n.hasIssue) || fileFindings.length > 0
       if (hasFileIssue && !firstIssueFile) {
         firstIssueFile = fileName
       }
+
+      const issueCount = fileFindings.length || fileNodes.reduce((acc, n) => acc + (n.issueCount || 0), 0)
+      let highestSeverity: 'critical' | 'high' | 'medium' | 'low' | 'clean' = 'clean'
+      if (fileFindings.some((f) => f.severity === 'critical')) highestSeverity = 'critical'
+      else if (fileFindings.some((f) => f.severity === 'high')) highestSeverity = 'high'
+      else if (fileFindings.some((f) => f.severity === 'medium')) highestSeverity = 'medium'
+      else if (fileFindings.some((f) => f.severity === 'low')) highestSeverity = 'low'
+      else if (hasFileIssue) highestSeverity = 'high'
 
       const lang = fileName.endsWith('.ts') || fileName.endsWith('.tsx')
         ? `TypeScript · ${count} hàm`
@@ -137,32 +184,67 @@ export function GraphReview({
         width: containerWidth,
         height: containerHeight,
         hasIssue: hasFileIssue,
+        issueCount,
+        highestSeverity,
+        nodesCount: count,
       })
 
-      // Position each node inside container
+      // Position each node inside container (Tree Level 3: Hàm)
       fileNodes.forEach((node, nodeIdx) => {
-        const nx = containerX + 14
+        const nx = containerX + 24
         const ny = containerY + headerHeight + nodeIdx * (nodeHeight + nodeGap)
-        const nw = containerWidth - 28
+        const nw = containerWidth - 36
         const nh = nodeHeight
 
         const pos = { x: nx, y: ny, width: nw, height: nh, file: fileName }
         positions[node.id] = pos
-        // Also index by functionName and fn:*:name for robust edge lookup
         if (!positions[node.functionName]) {
           positions[node.functionName] = pos
         }
       })
 
+      if (containerY + containerHeight > maxBottomY) {
+        maxBottomY = containerY + containerHeight
+      }
+
       fileIdx++
     }
 
+    const totalFilesWidth = Math.max(1, fileIdx) * (containerWidth + containerSpacing) - containerSpacing
+    const projectWidth = 380
+    const projectHeight = 76
+    const projectX = Math.max(startX, startX + (totalFilesWidth - projectWidth) / 2)
+    const projectY = 30
+
+    const critCount = findings.filter((f) => f.severity === 'critical').length
+    const highCount = findings.filter((f) => f.severity === 'high').length
+    const medCount = findings.filter((f) => f.severity === 'medium').length
+
     return {
+      projectNode: {
+        x: projectX,
+        y: projectY,
+        width: projectWidth,
+        height: projectHeight,
+        name: projectName,
+        root: projectRoot,
+        revision,
+        filesCount: fileGroups.size,
+        nodesCount: nodes.length,
+        issuesCount: findings.length,
+        critCount,
+        highCount,
+        medCount,
+      },
       fileContainers: containers,
       nodePositions: positions,
-      firstFileWithIssue: firstIssueFile || (containers[0]?.name ?? 'auth.js'),
+      firstFileWithIssue: firstIssueFile || (containers[0]?.name ?? 'project'),
+      canvasBounds: {
+        width: Math.max(projectX + projectWidth + 100, startX + totalFilesWidth + 100),
+        height: maxBottomY + 100,
+      },
     }
-  }, [fileGroups])
+  }, [fileGroups, nodes, findings, projectName, projectRoot, revision])
 
   // Helper to resolve node position by ID or name
   const getNodePos = (idOrName: string) => {
@@ -179,7 +261,7 @@ export function GraphReview({
     return null
   }
 
-  // 3. Compute dynamic bezier curve edges
+  // 3. Compute dynamic bezier curve call edges
   const computedEdges = useMemo(() => {
     return edges
       .map((edge) => {
@@ -198,18 +280,16 @@ export function GraphReview({
           tgt.file === selectedNode?.file
 
         if (isSameFile) {
-          // Arc out to the right within the same file container
           x1 = src.x + src.width
           y1 = src.y + src.height / 2
           x2 = tgt.x + tgt.width
           y2 = tgt.y + tgt.height / 2
-          const arc = Math.abs(y2 - y1) * 0.4 + 30
+          const arc = Math.abs(y2 - y1) * 0.4 + 28
           cx1 = x1 + arc
           cy1 = y1
           cx2 = x2 + arc
           cy2 = y2
         } else if (src.x + src.width <= tgt.x) {
-          // Flow from left to right
           x1 = src.x + src.width
           y1 = src.y + src.height / 2
           x2 = tgt.x
@@ -220,7 +300,6 @@ export function GraphReview({
           cx2 = x2 - dx
           cy2 = y2
         } else {
-          // Flow from right to left (backwards)
           x1 = src.x
           y1 = src.y + src.height / 2
           x2 = tgt.x + tgt.width
@@ -248,6 +327,75 @@ export function GraphReview({
       .filter((e): e is NonNullable<typeof e> => e !== null)
   }, [edges, nodePositions, selectedNodeId, selectedNode])
 
+  // Download Standalone SVG Diagram
+  const handleDownloadSvg = () => {
+    if (!svgRef.current) return
+    const svgEl = svgRef.current.cloneNode(true) as SVGSVGElement
+
+    svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    svgEl.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    svgEl.removeAttribute('style')
+
+    // Add dark background rect for standalone SVG viewer
+    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+    bgRect.setAttribute('x', '0')
+    bgRect.setAttribute('y', '0')
+    bgRect.setAttribute('width', String(canvasBounds.width + 100))
+    bgRect.setAttribute('height', String(canvasBounds.height + 100))
+    bgRect.setAttribute('fill', '#070c14')
+    svgEl.insertBefore(bgRect, svgEl.firstChild)
+
+    svgEl.setAttribute('viewBox', `0 0 ${canvasBounds.width + 100} ${canvasBounds.height + 100}`)
+    svgEl.setAttribute('width', String(canvasBounds.width + 100))
+    svgEl.setAttribute('height', String(canvasBounds.height + 100))
+
+    const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+    styleEl.textContent = `
+      text { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    `
+    svgEl.insertBefore(styleEl, svgEl.firstChild)
+
+    const serializer = new XMLSerializer()
+    let source = serializer.serializeToString(svgEl)
+    if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+      source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"')
+    }
+    const svgBlob = new Blob(['<?xml version="1.0" standalone="no"?>\r\n' + source], {
+      type: 'image/svg+xml;charset=utf-8',
+    })
+    const url = URL.createObjectURL(svgBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(projectName || 'code-review').replace(/[^\w-]/g, '_')}-tree-graph.svg`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // Calculate highest severity badge on function node
+  const getNodeSeverityBadge = (node: GraphNode) => {
+    const nodeFindings = findings.filter(
+      (f) =>
+        f.id === node.id ||
+        (f.file === node.file && f.line >= node.startLine && f.line <= node.endLine)
+    )
+    if (nodeFindings.length === 0) {
+      return { label: 'SẠCH', color: '#10b981', bg: '#064e3b', border: '#059669', count: 0 }
+    }
+    if (nodeFindings.some((f) => f.severity === 'critical')) {
+      return { label: 'CRIT', color: '#f43f5e', bg: '#881337', border: '#e11d48', count: nodeFindings.length }
+    }
+    if (nodeFindings.some((f) => f.severity === 'high')) {
+      return { label: 'HIGH', color: '#fb923c', bg: '#7c2d12', border: '#ea580c', count: nodeFindings.length }
+    }
+    if (nodeFindings.some((f) => f.severity === 'medium')) {
+      return { label: 'MED', color: '#facc15', bg: '#713f12', border: '#ca8a04', count: nodeFindings.length }
+    }
+    return { label: 'LOW', color: '#60a5fa', bg: '#1e3a8a', border: '#2563eb', count: nodeFindings.length }
+  }
+
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden bg-[#070c14] select-none">
       {/* Top Bar inside canvas */}
@@ -255,10 +403,10 @@ export function GraphReview({
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
             <IconFocus2 className="size-4 text-primary" stroke={2} />
-            <span>Graph Review</span>
+            <span>Sơ đồ cây AST & Quan hệ Gọi (SVG Tree)</span>
           </div>
           <span className="text-xs text-muted-foreground">
-            · {nodes.length} hàm · {edges.length} cạnh · {fileContainers.length} tệp
+            · {projectNode.filesCount} tệp · {nodes.length} hàm · {edges.length} quan hệ gọi · {findings.length} lỗi
           </span>
         </div>
 
@@ -273,7 +421,7 @@ export function GraphReview({
                 : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground'
             }`}
           >
-            {filterIssueOnly ? 'Đang lọc: Chỉ lỗi' : 'Tất cả hàm'}
+            {filterIssueOnly ? 'Đang lọc: Chỉ hàm có lỗi' : 'Tất cả hàm'}
           </button>
 
           {/* Search bar */}
@@ -284,9 +432,34 @@ export function GraphReview({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Tìm hàm... (Enter)"
-              className="h-7 w-48 rounded-md border border-border/60 bg-muted/40 pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+              className="h-7 w-44 rounded-md border border-border/60 bg-muted/40 pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
+
+          {/* Download SVG Button */}
+          <button
+            type="button"
+            onClick={handleDownloadSvg}
+            className="flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-xs font-semibold text-cyan-300 shadow-3d-1 transition-all hover:bg-cyan-500/20 hover:border-cyan-500/60"
+            title="Tải xuống sơ đồ cây dạng tệp SVG độc lập"
+          >
+            <IconDownload className="size-3.5" />
+            <span>Tải SVG</span>
+          </button>
+
+          {/* Legend toggle */}
+          <button
+            type="button"
+            onClick={() => setShowLegend((l) => !l)}
+            className={`rounded-md p-1 border text-xs transition-colors ${
+              showLegend
+                ? 'border-primary/50 bg-primary/20 text-primary'
+                : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground'
+            }`}
+            title="Bật/Tắt Bảng giải thích màu sắc/ký hiệu"
+          >
+            <IconInfoCircle className="size-4" />
+          </button>
 
           {/* Canvas Zoom & Fit buttons */}
           <div className="flex items-center rounded-md border border-border/60 bg-muted/40 p-0.5">
@@ -319,7 +492,7 @@ export function GraphReview({
             </button>
             <button
               type="button"
-              onClick={() => setZoom(1.1)}
+              onClick={() => setZoom(1.05)}
               className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               title="Vừa khung"
             >
@@ -352,39 +525,176 @@ export function GraphReview({
           }}
         />
 
-        {/* Legend Box */}
-        <div className="absolute left-4 top-4 z-20 rounded-lg border border-border/50 bg-[#0d1522]/90 p-2.5 text-[11px] shadow-3d-2 backdrop-blur-md">
-          <div className="flex flex-col gap-1.5 font-mono text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <span className="h-0.5 w-4 bg-cyan-400" />
-              <span>calls</span>
+        {/* Legend Box (Bảng giải thích màu sắc/ký hiệu) */}
+        {showLegend && (
+          <div className="absolute left-4 top-4 z-20 max-w-xs rounded-xl border border-border/60 bg-[#0d1624]/95 p-3 text-[11px] shadow-3d-3 backdrop-blur-md">
+            <div className="flex items-center justify-between border-b border-border/40 pb-1.5 mb-2">
+              <span className="font-bold text-foreground">Bảng Giải Thích Ký Hiệu & Màu</span>
+              <button
+                type="button"
+                onClick={() => setShowLegend(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <IconX className="size-3.5" />
+              </button>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="h-0.5 w-4 border-t-2 border-dashed border-cyan-400" />
-              <span>calls chéo tệp</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="h-0.5 w-4 border-t-2 border-dashed border-purple-400" />
-              <span>HTTP suy đoán</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="size-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]" />
-              <span>hàm có issue</span>
+            <div className="flex flex-col gap-2 font-mono text-muted-foreground">
+              <div>
+                <div className="text-[10px] font-bold uppercase text-foreground/80 mb-1">
+                  1. Phân cấp sơ đồ cây:
+                </div>
+                <div className="flex items-center gap-1 text-[10px]">
+                  <span className="text-cyan-400 font-bold">🏢 Dự án</span>
+                  <span>→</span>
+                  <span className="text-amber-400 font-bold">📁 Tệp</span>
+                  <span>→</span>
+                  <span className="text-emerald-400 font-bold">⚡ Hàm</span>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-bold uppercase text-foreground/80 mb-1">
+                  2. Quan hệ gọi hàm:
+                </div>
+                <div className="flex flex-col gap-1 text-[10px]">
+                  <div className="flex items-center gap-2">
+                    <span className="h-0.5 w-5 bg-cyan-400" />
+                    <span>Gọi nội bộ cùng tệp</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-0.5 w-5 border-t-2 border-dashed border-sky-400" />
+                    <span>Gọi chéo tệp (Cross-file)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-0.5 w-5 border-t-2 border-dashed border-purple-400" />
+                    <span>Gọi HTTP / Bên ngoài</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-bold uppercase text-foreground/80 mb-1">
+                  3. Mức độ lỗi:
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-[10px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.8)]" />
+                    <span>Critical</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-orange-500" />
+                    <span>High</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-yellow-500" />
+                    <span>Medium</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-emerald-500" />
+                    <span>Sạch (0 lỗi)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-border/30 pt-1 text-[9px] text-muted-foreground/70">
+                💡 Nhấp vào node bất kỳ để xem chi tiết lỗi và nguyên nhân.
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Action button: Phân tích tệp */}
-        <div className="absolute right-4 top-4 z-20">
-          <button
-            type="button"
-            onClick={() => onAnalyzeFile?.(firstFileWithIssue)}
-            className="flex items-center gap-1.5 rounded-lg border border-lime-500/40 bg-lime-500/10 px-3 py-1.5 text-xs font-semibold text-lime-400 shadow-3d-1 transition-all hover:bg-lime-500/20 hover:border-lime-500/60"
-          >
-            <IconTestPipe className="size-4" />
-            <span>Xem mã {firstFileWithIssue}</span>
-          </button>
-        </div>
+        {/* Selected Node Details Floating Card (Xem lỗi và nguyên nhân) */}
+        {selectedNode && showNodeDetails && (
+          <div className="absolute right-4 bottom-4 z-20 w-96 rounded-xl border border-cyan-500/40 bg-[#0d1624]/95 p-3.5 shadow-3d-3 backdrop-blur-md font-sans">
+            <div className="flex items-start justify-between border-b border-border/40 pb-2">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-xs font-bold text-cyan-300">
+                    {selectedNode.functionName}
+                  </span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground">
+                    {selectedNode.file}
+                  </span>
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  Vị trí: dòng {selectedNode.startLine} - {selectedNode.endLine}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNodeDetails(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <IconX className="size-4" />
+              </button>
+            </div>
+
+            {/* List of issues and root cause */}
+            <div className="mt-2.5 max-h-56 overflow-y-auto space-y-2.5 pr-1">
+              {selectedNodeFindings.length > 0 ? (
+                selectedNodeFindings.map((f, idx) => (
+                  <div
+                    key={f.id || idx}
+                    className="rounded-lg border border-border/50 bg-[#070c14]/80 p-2 text-xs space-y-1.5"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase font-mono ${
+                          f.severity === 'critical'
+                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                            : f.severity === 'high'
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                            : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40'
+                        }`}
+                      >
+                        {f.severity}
+                      </span>
+                      <span className="font-semibold text-foreground text-[11px] truncate">
+                        {f.title}
+                      </span>
+                    </div>
+
+                    <div className="text-[10px] text-muted-foreground leading-relaxed">
+                      <strong className="text-foreground/90">Nguyên nhân: </strong>
+                      <span>{f.rootCause || f.description}</span>
+                    </div>
+
+                    {f.evidence && (
+                      <div className="rounded bg-rose-950/30 border border-rose-500/20 p-1 font-mono text-[9px] text-rose-300 overflow-x-auto">
+                        <code>{f.evidence}</code>
+                      </div>
+                    )}
+
+                    {f.suggestedFix && (
+                      <div className="text-[10px] text-emerald-400 leading-relaxed">
+                        <strong>Đề xuất: </strong>
+                        <span>{f.suggestedFix}</span>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 p-2 text-xs text-emerald-400">
+                  <IconCheck className="size-4 shrink-0" />
+                  <span>Hàm này sạch, không phát hiện lỗ hổng hay vi phạm quy tắc.</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex items-center justify-between border-t border-border/40 pt-2 text-[10px]">
+              <span className="text-muted-foreground">
+                {selectedNodeFindings.length} vấn đề được gắn vào hàm
+              </span>
+              <button
+                type="button"
+                onClick={() => onAnalyzeFile?.(selectedNode.file)}
+                className="flex items-center gap-1 text-cyan-400 hover:underline font-semibold"
+              >
+                <span>Mở mã nguồn ({selectedNode.file})</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         <svg
           ref={svgRef}
@@ -395,38 +705,324 @@ export function GraphReview({
           }}
         >
           <defs>
-            {/* Arrow marker for calls */}
+            {/* Arrow markers for call edges */}
             <marker id="arrow-cyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
               <path d="M 0 1 L 9 5 L 0 9 z" fill="#22d3ee" />
             </marker>
             <marker id="arrow-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
               <path d="M 0 1 L 9 5 L 0 9 z" fill="#c084fc" />
             </marker>
+            <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 1 L 9 5 L 0 9 z" fill="#f59e0b" />
+            </marker>
+            <marker id="arrow-emerald" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 1 L 9 5 L 0 9 z" fill="#10b981" />
+            </marker>
           </defs>
 
-          {/* Render File Containers */}
+          {/* ========================================================= */}
+          {/* 1. TREE HIERARCHY LEVEL 1: DỰ ÁN (PROJECT ROOT NODE)     */}
+          {/* ========================================================= */}
+          <g>
+            <rect
+              x={projectNode.x}
+              y={projectNode.y}
+              width={projectNode.width}
+              height={projectNode.height}
+              rx={12}
+              className="fill-[#0c1626] stroke-primary/70"
+              strokeWidth={2}
+            />
+            {/* Project Header badge */}
+            <rect
+              x={projectNode.x + 12}
+              y={projectNode.y + 12}
+              width={26}
+              height={26}
+              rx={6}
+              className="fill-primary/20 stroke-primary/40"
+              strokeWidth={1}
+            />
+            <text
+              x={projectNode.x + 25}
+              y={projectNode.y + 29}
+              textAnchor="middle"
+              className="fill-primary font-bold text-sm"
+            >
+              🏢
+            </text>
+
+            {/* Project Name */}
+            <text
+              x={projectNode.x + 46}
+              y={projectNode.y + 27}
+              className="fill-foreground font-bold text-[13px]"
+            >
+              Dự án: {projectNode.name}
+            </text>
+
+            {/* Revision & Status */}
+            <text
+              x={projectNode.x + 46}
+              y={projectNode.y + 42}
+              className="fill-muted-foreground font-mono text-[10px]"
+            >
+              Phiên bản: {projectNode.revision} · {projectNode.filesCount} tệp · {projectNode.nodesCount} hàm
+            </text>
+
+            {/* Project Root path */}
+            <text
+              x={projectNode.x + 14}
+              y={projectNode.y + 60}
+              className="fill-cyan-400 font-mono text-[9px]"
+            >
+              📂 {projectNode.root.length > 55 ? '…' + projectNode.root.slice(-52) : projectNode.root}
+            </text>
+
+            {/* Issues severity summary tag on project node */}
+            <g transform={`translate(${projectNode.x + projectNode.width - 110}, ${projectNode.y + 14})`}>
+              <rect
+                x={0}
+                y={0}
+                width={98}
+                height={22}
+                rx={6}
+                className={projectNode.issuesCount > 0 ? 'fill-rose-950/80 stroke-rose-500/50' : 'fill-emerald-950/80 stroke-emerald-500/50'}
+                strokeWidth={1}
+              />
+              <text
+                x={49}
+                y={15}
+                textAnchor="middle"
+                className={`font-mono text-[10px] font-bold ${projectNode.issuesCount > 0 ? 'fill-rose-300' : 'fill-emerald-300'}`}
+              >
+                {projectNode.issuesCount > 0 ? `${projectNode.issuesCount} vấn đề` : '✓ Sạch (0 lỗi)'}
+              </text>
+            </g>
+          </g>
+
+          {/* ========================================================= */}
+          {/* 2. TREE BRANCHES: DỰ ÁN → FILE (HIERARCHY LINES)          */}
+          {/* ========================================================= */}
+          {fileContainers.map((fc) => {
+            const px = projectNode.x + projectNode.width / 2
+            const py = projectNode.y + projectNode.height
+            const fx = fc.x + fc.width / 2
+            const fy = fc.y
+            const treeBranchD = `M ${px} ${py} C ${px} ${py + 35}, ${fx} ${fy - 35}, ${fx} ${fy}`
+            return (
+              <path
+                key={`tree-branch-proj-${fc.name}`}
+                d={treeBranchD}
+                fill="none"
+                stroke="#334155"
+                strokeWidth={1.5}
+                className="opacity-70"
+              />
+            )
+          })}
+
+          {/* ========================================================= */}
+          {/* 3. TREE HIERARCHY LEVEL 2: TỆP (FILE CONTAINERS)          */}
+          {/* ========================================================= */}
           {fileContainers.map((fc) => (
             <g key={fc.name}>
+              {/* File Container Background */}
               <rect
                 x={fc.x}
                 y={fc.y}
                 width={fc.width}
                 height={fc.height}
                 rx={10}
-                className="fill-[#0c1626]/80 stroke-border/70"
+                className="fill-[#0c1626]/85 stroke-border/70"
                 strokeWidth={1}
               />
-              <rect x={fc.x + 8} y={fc.y + 10} width={2.5} height={12} rx={1} className={fc.hasIssue ? 'fill-rose-500' : 'fill-amber-400'} />
-              <text x={fc.x + 15} y={fc.y + 20} className="fill-foreground font-mono text-[11px] font-semibold">
-                {fc.name}
+
+              {/* Severity side indicator */}
+              <rect
+                x={fc.x + 8}
+                y={fc.y + 12}
+                width={3}
+                height={16}
+                rx={1.5}
+                className={fc.hasIssue ? 'fill-rose-500' : 'fill-emerald-400'}
+              />
+
+              {/* File Name */}
+              <text x={fc.x + 18} y={fc.y + 23} className="fill-foreground font-mono text-[11px] font-bold">
+                📁 {fc.name}
               </text>
-              <text x={fc.x + 15} y={fc.y + 32} className="fill-muted-foreground font-mono text-[9px]">
+              {/* File Info */}
+              <text x={fc.x + 18} y={fc.y + 37} className="fill-muted-foreground font-mono text-[9px]">
                 {fc.lang}
               </text>
+
+              {/* File Issue Badge */}
+              <g transform={`translate(${fc.x + fc.width - 70}, ${fc.y + 10})`}>
+                <rect
+                  x={0}
+                  y={0}
+                  width={62}
+                  height={18}
+                  rx={4}
+                  className={fc.hasIssue ? 'fill-rose-950/60 stroke-rose-500/40' : 'fill-emerald-950/60 stroke-emerald-500/40'}
+                  strokeWidth={1}
+                />
+                <text
+                  x={31}
+                  y={12}
+                  textAnchor="middle"
+                  className={`font-mono text-[9px] font-semibold ${fc.hasIssue ? 'fill-rose-300' : 'fill-emerald-300'}`}
+                >
+                  {fc.hasIssue ? `${fc.issueCount} lỗi` : '0 lỗi'}
+                </text>
+              </g>
+
+              {/* Tree vertical line inside file container */}
+              <line
+                x1={fc.x + 14}
+                y1={fc.y + 50}
+                x2={fc.x + 14}
+                y2={fc.y + fc.height - 18}
+                stroke="#1e293b"
+                strokeWidth={1.5}
+                strokeDasharray="2 2"
+              />
             </g>
           ))}
 
-          {/* Render Dynamic Edges */}
+          {/* ========================================================= */}
+          {/* 4. TREE HIERARCHY LEVEL 3: HÀM (FUNCTION NODES)           */}
+          {/* ========================================================= */}
+          {nodes.map((node) => {
+            const pos = nodePositions[node.id] || { x: 100, y: 100, width: 204, height: 50, file: 'file' }
+            const isSelected = node.id === selectedNodeId
+            const isMatched = matchedNodeIds.has(node.id)
+            const caller = isCaller(node.functionName)
+            const callee = isCallee(node.functionName)
+            const related = isRelated(node)
+            const sev = getNodeSeverityBadge(node)
+
+            return (
+              <g
+                key={node.id}
+                className="cursor-pointer transition-transform hover:scale-[1.02]"
+                onClick={() => {
+                  onSelectNode(node.id)
+                  setShowNodeDetails(true)
+                }}
+              >
+                {/* Tree horizontal branch from file container guide line to function card */}
+                <line
+                  x1={pos.x - 10}
+                  y1={pos.y + pos.height / 2}
+                  x2={pos.x}
+                  y2={pos.y + pos.height / 2}
+                  stroke="#334155"
+                  strokeWidth={1.5}
+                />
+
+                {/* Node Card Rectangle */}
+                <rect
+                  x={pos.x}
+                  y={pos.y}
+                  width={pos.width}
+                  height={pos.height}
+                  rx={7}
+                  className={`transition-all ${
+                    isSelected
+                      ? 'fill-[#132238] stroke-cyan-400 stroke-[2.5px] shadow-[0_0_16px_rgba(34,211,238,0.5)]'
+                      : caller
+                      ? 'fill-[#1c1a2e] stroke-amber-400 stroke-[2px]'
+                      : callee
+                      ? 'fill-[#102422] stroke-emerald-400 stroke-[2px]'
+                      : node.hasIssue
+                      ? 'fill-[#141b2b] stroke-rose-500/80 stroke-[1.5px]'
+                      : isMatched
+                      ? 'fill-[#0f192b] stroke-border hover:stroke-cyan-500/50'
+                      : 'fill-[#0f192b]/40 stroke-border/30 opacity-40'
+                  } ${!related ? 'opacity-35' : 'opacity-100'}`}
+                />
+
+                {/* Left vertical status indicator */}
+                <rect
+                  x={pos.x + 5}
+                  y={pos.y + 7}
+                  width={3}
+                  height={pos.height - 14}
+                  rx={1.5}
+                  fill={sev.color}
+                />
+
+                {/* Function Name */}
+                <text
+                  x={pos.x + 14}
+                  y={pos.y + 19}
+                  className={`font-mono text-[11px] font-bold ${
+                    node.hasIssue ? 'fill-rose-200' : 'fill-foreground'
+                  }`}
+                >
+                  ⚡ {node.functionName.length > 17 ? node.functionName.slice(0, 15) + '…' : node.functionName}
+                </text>
+
+                {/* Function Line Range */}
+                <text
+                  x={pos.x + 14}
+                  y={pos.y + 35}
+                  className="fill-muted-foreground font-mono text-[9px]"
+                >
+                  {node.startLine ? `dòng ${node.startLine}-${node.endLine}` : 'toàn hàm'}
+                </text>
+
+                {/* Severity Badge in top-right of node */}
+                <g transform={`translate(${pos.x + pos.width - 52}, ${pos.y + 7})`}>
+                  <rect
+                    x={0}
+                    y={0}
+                    width={46}
+                    height={16}
+                    rx={3}
+                    fill={sev.bg}
+                    stroke={sev.border}
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={23}
+                    y={11}
+                    textAnchor="middle"
+                    fill={sev.color}
+                    className="font-mono text-[8px] font-bold"
+                  >
+                    {sev.count > 0 ? `${sev.label} (${sev.count})` : sev.label}
+                  </text>
+                </g>
+
+                {/* Interaction indicator if caller or callee */}
+                {caller && (
+                  <text
+                    x={pos.x + pos.width - 48}
+                    y={pos.y + 40}
+                    className="fill-amber-400 font-mono text-[8px] font-bold"
+                  >
+                    ▲ CALLER
+                  </text>
+                )}
+                {callee && (
+                  <text
+                    x={pos.x + pos.width - 46}
+                    y={pos.y + 40}
+                    className="fill-emerald-400 font-mono text-[8px] font-bold"
+                  >
+                    ▼ CALLEE
+                  </text>
+                )}
+              </g>
+            )
+          })}
+
+          {/* ========================================================= */}
+          {/* 5. AST CALL GRAPH EDGES (QUAN HỆ GỌI HÀM RIÊNG BIỆT)      */}
+          {/* ========================================================= */}
           {computedEdges.map((ce) => (
             <path
               key={ce.id}
@@ -437,140 +1033,15 @@ export function GraphReview({
               strokeDasharray={ce.isCrossFile || ce.isHttp ? '4 3' : undefined}
               markerEnd={ce.isHttp ? 'url(#arrow-purple)' : 'url(#arrow-cyan)'}
               className="transition-all"
-              opacity={!selectedNodeId || ce.isSelected ? 0.9 : 0.25}
+              opacity={!selectedNodeId || ce.isSelected ? 0.9 : 0.2}
             />
           ))}
-
-          {/* Render Function Nodes */}
-          {nodes.map((node) => {
-            const pos = nodePositions[node.id] || { x: 100, y: 100, width: 192, height: 44 }
-            const isSelected = node.id === selectedNodeId
-            const isMatched = matchedNodeIds.has(node.id)
-            const caller = isCaller(node.functionName)
-            const callee = isCallee(node.functionName)
-            const related = isRelated(node)
-
-            if (node.isExternal) {
-              return (
-                <g
-                  key={node.id}
-                  className="cursor-pointer"
-                  onClick={() => onSelectNode(node.id)}
-                >
-                  <rect
-                    x={pos.x}
-                    y={pos.y}
-                    width={pos.width}
-                    height={pos.height}
-                    rx={6}
-                    className="fill-[#130f26]/90 stroke-purple-500/80"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 3"
-                  />
-                  <text
-                    x={pos.x + pos.width / 2}
-                    y={pos.y + 17}
-                    textAnchor="middle"
-                    className="fill-purple-300 font-mono text-[11px] font-semibold"
-                  >
-                    {node.functionName}
-                  </text>
-                  <text
-                    x={pos.x + pos.width / 2}
-                    y={pos.y + 29}
-                    textAnchor="middle"
-                    className="fill-purple-400/70 font-mono text-[9px]"
-                  >
-                    bên ngoài · suy đoán
-                  </text>
-                </g>
-              )
-            }
-
-            return (
-              <g
-                key={node.id}
-                className="cursor-pointer transition-transform hover:scale-[1.02]"
-                onClick={() => onSelectNode(node.id)}
-              >
-                <rect
-                  x={pos.x}
-                  y={pos.y}
-                  width={pos.width}
-                  height={pos.height}
-                  rx={6}
-                  className={`transition-all ${
-                    isSelected
-                      ? 'fill-[#132238] stroke-cyan-400 stroke-[2.5px] shadow-[0_0_16px_rgba(34,211,238,0.5)]'
-                      : caller
-                      ? 'fill-[#1c1a2e] stroke-amber-400 stroke-[2px]'
-                      : callee
-                      ? 'fill-[#102422] stroke-emerald-400 stroke-[2px]'
-                      : node.hasIssue
-                      ? 'fill-[#121c2e] stroke-rose-500/80 stroke-[1.5px]'
-                      : isMatched
-                      ? 'fill-[#0f192b] stroke-border hover:stroke-cyan-500/50'
-                      : 'fill-[#0f192b]/40 stroke-border/30 opacity-40'
-                  } ${!related ? 'opacity-35' : 'opacity-100'}`}
-                />
-
-                {/* Left vertical indicator */}
-                <rect
-                  x={pos.x + 4}
-                  y={pos.y + 7}
-                  width={2}
-                  height={pos.height - 14}
-                  rx={1}
-                  className={node.hasIssue ? 'fill-rose-500' : 'fill-amber-400'}
-                />
-
-                {/* Function Name */}
-                <text
-                  x={pos.x + 12}
-                  y={pos.y + 18}
-                  className={`font-mono text-[11px] font-semibold ${
-                    node.hasIssue ? 'fill-rose-200' : 'fill-foreground'
-                  }`}
-                >
-                  {node.functionName.length > 20 ? node.functionName.slice(0, 18) + '…' : node.functionName}
-                </text>
-
-                {/* Function badge "fn" */}
-                <text
-                  x={pos.x + pos.width - 16}
-                  y={pos.y + 16}
-                  className="fill-muted-foreground font-mono text-[9px]"
-                >
-                  fn
-                </text>
-
-                {/* Line range */}
-                <text
-                  x={pos.x + 12}
-                  y={pos.y + 31}
-                  className="fill-muted-foreground font-mono text-[9px]"
-                >
-                  {node.startLine ? `dòng ${node.startLine}-${node.endLine}` : ''}
-                </text>
-
-                {/* Pink Issue dot indicator if issue present */}
-                {node.hasIssue && (
-                  <circle
-                    cx={pos.x + pos.width - 7}
-                    cy={pos.y + 7}
-                    r={3.5}
-                    className="fill-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]"
-                  />
-                )}
-              </g>
-            )
-          })}
         </svg>
 
         {/* Minimap preview in bottom-right */}
-        <div className="absolute bottom-4 right-4 z-20 h-16 w-32 rounded-lg border border-border/50 bg-[#0d1624]/90 p-1.5 shadow-3d-2 backdrop-blur-md">
+        <div className="absolute bottom-4 right-4 z-20 h-16 w-36 rounded-lg border border-border/50 bg-[#0d1624]/90 p-1.5 shadow-3d-2 backdrop-blur-md">
           <div className="flex h-full w-full items-center justify-around gap-1 rounded bg-[#070c14]/80 p-1 overflow-hidden">
-            {fileContainers.slice(0, 5).map((fc) => (
+            {fileContainers.slice(0, 6).map((fc) => (
               <span
                 key={fc.name}
                 className={`h-6 flex-1 rounded-xs border transition-colors ${
@@ -586,7 +1057,7 @@ export function GraphReview({
 
         {/* Bottom hint bar */}
         <div className="absolute bottom-2 left-4 z-20 text-[10px] font-mono text-muted-foreground/70">
-          kéo nền · cuộn zoom · bấm hàm để focus & xem ảnh hưởng · chuột phải để mở menu
+          kéo canvas để di chuyển · cuộn chuột để zoom · nhấp node để xem lỗi & nguyên nhân · bấm &quot;Tải SVG&quot; để lưu sơ đồ
         </div>
       </div>
     </div>

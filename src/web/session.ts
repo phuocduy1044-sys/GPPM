@@ -32,7 +32,7 @@ import { stoppedLine } from '../ui/layout.js'
 import { TurnSummaryBuilder } from '../ui/turnSummary.js'
 import { expandCommand, findCustomCommand, customCommands, invalidateCustomCommands } from '../commands/custom.js'
 import { COMMANDS } from '../ui/constants.js'
-import { INIT_PROMPT, reviewPrompt, contextReport, costReport, mcpReport, agentsReport, settingsReport } from '../ui/reports.js'
+import { INIT_PROMPT, reviewPrompt, contextReport, mcpReport, settingsReport } from '../ui/reports.js'
 import { mcpStatus } from '../mcp/registry.js'
 import type { FileDiff } from '../diff.js'
 import type { TurnSummary } from '../ui/types.js'
@@ -712,18 +712,13 @@ export class WebAgent {
         return true
       }
       case '/context':
-        this.notice(contextReport(this.history, this.mode, this.ctx, this.cwd))
-        return true
       case '/cost': {
         const p = providerEntries().find((e) => e.name === resolveProvider().name)
-        this.notice(costReport(this.totals, loadConfig().model, p?.name ?? 'unknown', p?.kind === 'local'))
+        this.notice(contextReport(this.history, this.mode, this.ctx, this.cwd, this.totals, loadConfig().model, p?.name ?? 'unknown', p?.kind === 'local'))
         return true
       }
       case '/mcp':
         this.notice(mcpReport(mcpStatus()))
-        return true
-      case '/agents':
-        this.notice(agentsReport(this.cwd))
         return true
       case '/settings':
         this.notice(`**Settings**\n\n${settingsReport(this.cwd)}`)
@@ -741,6 +736,6 @@ export class WebAgent {
 
 /** The TUI commands that mean something in a browser. /vim, /copy and friends do not. */
 const WEB_COMMANDS = new Set([
-  '/plan', '/init', '/review', '/new', '/clear', '/rewind', '/compact',
-  '/context', '/cost', '/mcp', '/agents', '/settings',
+  '/plan', '/init', '/review', '/new', '/clear', '/compact',
+  '/context', '/mcp', '/settings',
 ])

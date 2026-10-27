@@ -43,6 +43,10 @@ export function contextReport(
   mode: PermissionMode,
   activeCtx: number | null,
   cwd: string,
+  totals?: SessionTotals,
+  model?: string,
+  provider?: string,
+  local?: boolean,
 ): string {
   const project = loadProjectContext(cwd)
   const tools = toolsForMode(mode)
@@ -78,7 +82,23 @@ export function contextReport(
       (mcpTools.length ? ` (${mcpTools.length} from MCP)` : '')
     : `Total ~${used.toLocaleString()} tokens. The provider didn't report a window size, so there's nothing to measure it against.`
 
-  return `⛁ **context**\n\n${lines.join('\n')}\n${footer}`
+  let costPart = ''
+  if (totals) {
+    const minutes = totals.ms / 60000
+    const costLines = [
+      `- model: \`${model ?? 'none'}\` via \`${provider ?? 'local'}\``,
+      `- turns: ${totals.turns}`,
+      `- input: ~${totals.input.toLocaleString()} tokens`,
+      `- output: ~${totals.output.toLocaleString()} tokens`,
+      `- agent time: ${minutes >= 1 ? `${minutes.toFixed(1)} min` : `${(totals.ms / 1000).toFixed(1)}s`}`,
+    ]
+    const note = local
+      ? '\nRunning locally — this cost you electricity and nothing else.'
+      : `\nviecodie doesn't track prices (they change faster than releases do). Multiply by ${provider ?? 'provider'}'s rates.`
+    costPart = `\n\n---\n\n⏱ **session usage & cost**\n\n${costLines.join('\n')}${note}`
+  }
+
+  return `⛁ **context & cost**\n\n${lines.join('\n')}\n${footer}${costPart}`
 }
 
 /**

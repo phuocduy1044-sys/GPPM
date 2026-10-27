@@ -1,4 +1,5 @@
-import { readdirSync, statSync, readFileSync, existsSync } from 'fs';
+import { readdirSync, statSync, lstatSync, realpathSync, readFileSync, existsSync } from 'fs';
+import { isUnder } from '../tools/paths.js';
 import { join, relative, resolve, extname } from 'path';
 import type { ScanScope } from './types.js';
 

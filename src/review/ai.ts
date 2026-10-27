@@ -1,8 +1,12 @@
 import { isAvailable, chat, providerName, NOT_AVAILABLE } from '../llm/client.js';
 import { loadConfig } from '../config.js';
-import type { Finding, GraphNode, ProviderInfo, AnalysisMode } from './types.js';
+import type { Finding, GraphNode, GraphEdge, ProviderInfo, AnalysisMode } from './types.js';
 import type { ScannedFile } from './scanner.js';
+import { scrubSecrets } from './scrub.js';
+import { selectGraphContext, validateAiFinding, type SelectedContextResult } from './contextSelector.js';
 import { z } from 'zod';
+
+export { selectGraphContext, validateAiFinding };
 
 const AiFindingSchema = z.object({
   ruleId: z.string(),
@@ -31,6 +35,14 @@ export interface AiReviewResult {
   findings: Finding[];
   providerInfo: ProviderInfo;
   mode: 'ai' | 'rules_only_fallback';
+  contextMeta?: SelectedContextResult;
+}
+
+export interface AiEnhancementOptions {
+  edges?: GraphEdge[];
+  signal?: AbortSignal;
+  maxContextTokens?: number;
+  projectRoot?: string;
 }
 
 export async function runAiEnhancement(
@@ -38,20 +50,59 @@ export async function runAiEnhancement(
   files: ScannedFile[],
   nodes: GraphNode[],
   requestedMode?: AnalysisMode,
-  userRequirement?: string
+  userRequirement?: string,
+  options?: AiEnhancementOptions
 ): Promise<AiReviewResult> {
   const currentProvider = providerName();
   const currentModel = loadConfig().model || 'default';
 
-  if (requestedMode === 'rules') {
+  // Perform Call Graph Context Selection (eliminates Probe 10)
+  const selectedContext = selectGraphContext({
+    files,
+    nodes,
+    edges: options?.edges,
+    ruleFindings,
+    userRequirement,
+    maxTokens: options?.maxContextTokens || 8000,
+  });
+
+  if (requestedMode === 'rules' || requestedMode === 'rules_only_fallback') {
     return {
       findings: ruleFindings,
       providerInfo: {
         provider: currentProvider,
         model: currentModel,
         isFallback: false,
+        provenance: {
+          selectedFiles: selectedContext.selectedFiles,
+          selectedNodes: selectedContext.selectedNodes,
+          graphNeighborhoodSize: selectedContext.neighborNodesCount,
+          completedAt: new Date().toISOString(),
+        },
       },
       mode: 'rules_only_fallback',
+      contextMeta: selectedContext,
+    };
+  }
+
+  // Check early cancellation
+  if (options?.signal?.aborted) {
+    return {
+      findings: ruleFindings,
+      providerInfo: {
+        provider: currentProvider,
+        model: currentModel,
+        isFallback: true,
+        fallbackReason: 'AI review request was cancelled before execution',
+        provenance: {
+          selectedFiles: selectedContext.selectedFiles,
+          selectedNodes: selectedContext.selectedNodes,
+          graphNeighborhoodSize: selectedContext.neighborNodesCount,
+          completedAt: new Date().toISOString(),
+        },
+      },
+      mode: 'rules_only_fallback',
+      contextMeta: selectedContext,
     };
   }
 
@@ -65,16 +116,19 @@ export async function runAiEnhancement(
         model: currentModel,
         isFallback: true,
         fallbackReason: `LLM Provider '${currentProvider}' is not available: ${reason}`,
+        provenance: {
+          selectedFiles: selectedContext.selectedFiles,
+          selectedNodes: selectedContext.selectedNodes,
+          graphNeighborhoodSize: selectedContext.neighborNodesCount,
+          completedAt: new Date().toISOString(),
+        },
       },
       mode: 'rules_only_fallback',
+      contextMeta: selectedContext,
     };
   }
 
-  // Prepare condensed code & graph context for AI prompt
-  const fileSummaries = files.slice(0, 10).map(f => {
-    return `--- FILE: ${f.relativePath} ---\n${f.content.slice(0, 2000)}`;
-  }).join('\n\n');
-
+  // Prepare findings summary for enrichment
   const ruleFindingsSummary = ruleFindings.map(f => ({
     id: f.id,
     ruleId: f.ruleId,
@@ -82,22 +136,26 @@ export async function runAiEnhancement(
     severity: f.severity,
     file: f.filePath,
     line: f.line,
-    evidence: f.evidence,
+    nodeId: f.nodeId,
+    evidence: scrubSecrets(f.evidence),
   }));
 
-  const reqSection = userRequirement ? `\nĐẶC BIỆT CHÚ Ý YÊU CẦU CỦA NGƯỜI DÙNG: "${userRequirement}". Hãy ưu tiên phân tích sâu, làm rõ và bổ sung các vấn đề liên quan trực tiếp đến yêu cầu này.\n` : '';
+  const cleanRequirement = userRequirement ? scrubSecrets(userRequirement) : undefined;
+  const reqSection = cleanRequirement
+    ? `\nĐẶC BIỆT CHÚ Ý YÊU CẦU CỦA NGƯỜI DÙNG: "${cleanRequirement}". Hãy ưu tiên phân tích sâu, làm rõ và bổ sung các vấn đề liên quan trực tiếp đến yêu cầu này.\n`
+    : '';
+
   const prompt = `Bạn là chuyên gia thẩm định mã nguồn (AI Code Reviewer).${reqSection}
-Dưới đây là mã nguồn dự án và danh sách các vấn đề (findings) đã được phát hiện tĩnh bằng AST rules.
+Dưới đây là thông tin Call Graph và ngữ cảnh mã nguồn được trích xuất theo độ ưu tiên đồ thị, kèm danh sách các vấn đề (findings) đã được phát hiện tĩnh bằng AST rules.
 
-MÃ NGUỒN DỰ ÁN:
-${fileSummaries}
+${selectedContext.formattedContext}
 
-FINDINGS HIỆN CÓ:
+FINDINGS HIỆN CÓ CẦN LÀM RÕ (ENRICH):
 ${JSON.stringify(ruleFindingsSummary, null, 2)}
 
 NHIỆM VỤ CỦA BẠN:
-1. Giải thích sâu sắc nguyên nhân và gợi ý khắc phục bằng tiếng Việt cho các finding hiện có.
-2. Nếu phát hiện thêm lỗi nghiêm trọng (security/bug) có bằng chứng thật trong mã nguồn trên, hãy bổ sung vào additionalFindings.
+1. Giải thích sâu sắc nguyên nhân và gợi ý khắc phục bằng tiếng Việt cho các finding hiện có, căn cứ vào liên hệ caller/callee trên Call Graph.
+2. Nếu phát hiện thêm lỗi nghiêm trọng (security/bug) có bằng chứng thật trong mã nguồn trên, hãy bổ sung vào additionalFindings. Tuyệt đối không bịa đặt tên file hoặc số dòng không có thật.
 3. CHỈ TRẢ VỀ JSON theo cấu trúc sau (không kèm markdown phụ, không kèm văn bản ngoài):
 {
   "enrichedFindings": [
@@ -125,25 +183,50 @@ NHIỆM VỤ CỦA BẠN:
 
   try {
     const chunks: string[] = [];
-    const chatStream = chat(currentModel, [
-      { role: 'system', content: 'You are an expert static analysis & code reviewer assistant. Always reply with valid JSON only.' },
-      { role: 'user', content: prompt }
-    ], undefined, { temperature: 0.1 });
+    let promptEvalTokens = 0;
+    let evalTokens = 0;
+
+    const chatStream = chat(
+      currentModel,
+      [
+        { role: 'system', content: 'You are an expert static analysis & code reviewer assistant. Always reply with valid JSON only.' },
+        { role: 'user', content: prompt }
+      ],
+      undefined,
+      { temperature: 0.1, signal: options?.signal }
+    );
 
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('AI review request timed out after 30 seconds')), 30000)
     );
 
+    const abortPromise = new Promise<never>((_, reject) => {
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          reject(new Error('AI review request was cancelled'));
+        } else {
+          options.signal.addEventListener('abort', () => {
+            reject(new Error('AI review request was cancelled'));
+          }, { once: true });
+        }
+      }
+    });
+
     const collectPromise = (async () => {
       for await (const chunk of chatStream) {
+        if (options?.signal?.aborted) {
+          throw new Error('AI review request was cancelled');
+        }
         if (chunk.content) chunks.push(chunk.content);
+        if (typeof chunk.prompt_eval_count === 'number') promptEvalTokens = chunk.prompt_eval_count;
+        if (typeof chunk.eval_count === 'number') evalTokens = chunk.eval_count;
       }
       return chunks.join('');
     })();
 
-    const responseText = await Promise.race([collectPromise, timeoutPromise]);
+    const responseText = await Promise.race([collectPromise, timeoutPromise, abortPromise]);
 
-    // Parse JSON
+    // Parse JSON defensively
     let parsedJson: unknown;
     try {
       const cleaned = responseText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -165,37 +248,31 @@ NHIỆM VỤ CỦA BẠN:
       if (enrichment) {
         return {
           ...rf,
-          explanation: enrichment.explanation || rf.explanation,
-          suggestion: enrichment.suggestion || rf.suggestion,
+          explanation: enrichment.explanation ? scrubSecrets(enrichment.explanation) : rf.explanation,
+          suggestion: enrichment.suggestion ? scrubSecrets(enrichment.suggestion) : rf.suggestion,
           source: 'both',
         };
       }
       return rf;
     });
 
-    // Add valid additional findings
+    // Validate and add additional findings with AST validator
     let extraCounter = 1;
     for (const af of validated.additionalFindings) {
-      // Verify file exists
-      const fileExists = files.some(f => f.relativePath === af.filePath);
-      if (!fileExists) continue;
-
-      mergedFindings.push({
-        id: `find-ai-${String(extraCounter++).padStart(2, '0')}`,
-        ruleId: af.ruleId,
-        category: af.category,
-        severity: af.severity,
-        title: af.title,
-        filePath: af.filePath,
-        line: af.line,
-        endLine: af.endLine || af.line,
-        evidence: af.evidence,
-        explanation: af.explanation,
-        suggestion: af.suggestion,
-        source: 'ai',
-        confidence: af.confidence,
-      });
+      const validFinding = validateAiFinding(
+        af,
+        files,
+        nodes,
+        () => `find-ai-${String(extraCounter++).padStart(2, '0')}`
+      );
+      if (validFinding) {
+        mergedFindings.push(validFinding);
+      }
     }
+
+    const promptTokens = promptEvalTokens > 0 ? promptEvalTokens : Math.ceil(prompt.length / 4);
+    const completionTokens = evalTokens > 0 ? evalTokens : Math.ceil(responseText.length / 4);
+    const totalTokens = promptTokens + completionTokens;
 
     return {
       findings: mergedFindings,
@@ -203,14 +280,28 @@ NHIỆM VỤ CỦA BẠN:
         provider: currentProvider,
         model: currentModel,
         isFallback: false,
+        usage: {
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          estimated: promptEvalTokens === 0,
+        },
+        provenance: {
+          selectedFiles: selectedContext.selectedFiles,
+          selectedNodes: selectedContext.selectedNodes,
+          graphNeighborhoodSize: selectedContext.neighborNodesCount,
+          completedAt: new Date().toISOString(),
+        },
       },
       mode: 'ai',
+      contextMeta: selectedContext,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    const sanitizedError = errorMsg
+    const sanitizedError = scrubSecrets(errorMsg)
       .replace(/(?:sk-[a-zA-Z0-9_-]{8,}|key-[a-zA-Z0-9_-]{8,}|Bearer\s+[a-zA-Z0-9_\-\.]{15,})/g, '[REDACTED_KEY]')
       .replace(/((?:api[_-]?key|secret|password|token)\s*[:=]\s*['"]?)[a-zA-Z0-9_\-\.]{8,}(['"]?)/gi, '$1[REDACTED]$2');
+
     return {
       findings: ruleFindings,
       providerInfo: {
@@ -218,8 +309,15 @@ NHIỆM VỤ CỦA BẠN:
         model: currentModel,
         isFallback: true,
         fallbackReason: `AI call failed, fell back to rules-only: ${sanitizedError}`,
+        provenance: {
+          selectedFiles: selectedContext.selectedFiles,
+          selectedNodes: selectedContext.selectedNodes,
+          graphNeighborhoodSize: selectedContext.neighborNodesCount,
+          completedAt: new Date().toISOString(),
+        },
       },
       mode: 'rules_only_fallback',
+      contextMeta: selectedContext,
     };
   }
 }

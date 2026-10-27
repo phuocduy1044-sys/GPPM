@@ -139,7 +139,12 @@ export function createWebHandler(agent: WebAgent, token: string) {
     // The page itself is not secret — the token is. It arrives in the URL the
     // CLI prints or through loopback session cookie, and the page's script lifts it out and sends it on every call.
     if (req.method === 'GET' && !path.startsWith('/api/')) {
-      res.setHeader('Set-Cookie', `viecodie-session=${token}; Path=/; SameSite=Strict`)
+      const queryToken = url.searchParams.get('token')
+      const headerToken = str(req.headers['x-viecodie-token'])
+      // Only grant session cookie if request presented the valid secret token
+      if ((queryToken && sameToken(queryToken, token)) || (headerToken && sameToken(headerToken, token))) {
+        res.setHeader('Set-Cookie', `viecodie-session=${token}; Path=/; SameSite=Strict`)
+      }
       return serveStatic(dir, path, res)
     }
 
@@ -167,25 +172,75 @@ export function createWebHandler(agent: WebAgent, token: string) {
           }
           case '/api/review/current': {
             const { getCurrentReport } = await import('../review/engine.js')
-            const report = getCurrentReport()
+            const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+            const report = getCurrentReport(reqSessionId || undefined)
             if (!report) return send(res, 404, { error: 'Chưa có báo cáo review nào' })
             return send(res, 200, report)
+          }
+          case '/api/review/history': {
+            const { getCurrentReport } = await import('../review/engine.js')
+            const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+            const report = getCurrentReport(reqSessionId || undefined)
+            if (!report) return send(res, 404, { error: 'Chưa có báo cáo review nào' })
+            return send(res, 200, {
+              applyHistory: report.applyHistory || [],
+              undoHistory: report.undoHistory || [],
+              candidates: report.candidates || {},
+            })
+          }
+          case '/api/review/tests': {
+            const { listProjectTestFiles, computeTestsHash } = await import('../runner/testBundleService.js')
+            const { discoverChecks } = await import('../runner/discovery.js')
+            const { getCurrentReport } = await import('../review/engine.js')
+            const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+            const current = getCurrentReport(reqSessionId || undefined)
+            const targetRoot = current?.projectRoot || agent.cwd
+            const testFiles = listProjectTestFiles(targetRoot)
+            const manifest = discoverChecks(targetRoot)
+            const testsHash = computeTestsHash(targetRoot, testFiles)
+            return send(res, 200, {
+              testFiles,
+              suggestedCommands: manifest.discoveredConfigs,
+              testsHash,
+              hasTests: testFiles.length > 0,
+            })
           }
           case '/api/review/source': {
             const relPath = str(url.searchParams.get('path'))
             const rev = str(url.searchParams.get('revision'))
+            const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
             if (!relPath) return send(res, 400, { error: 'expected ?path=<file>' })
-            const { resolve, normalize } = await import('path')
-            const { readFileSync, existsSync } = await import('fs')
-            const fullPath = resolve(agent.cwd, relPath)
-            if (!fullPath.startsWith(normalize(agent.cwd))) {
+            const { getCurrentReport } = await import('../review/engine.js')
+            const report = getCurrentReport(reqSessionId || undefined)
+
+            const rootDir = report?.projectRoot ? resolve(report.projectRoot) : resolve(agent.cwd)
+
+            // Strictly verify path containment
+            const { confineToRoot } = await import('../tools/paths.js')
+            let fullPath: string
+            try {
+              fullPath = confineToRoot(relPath, rootDir)
+            } catch {
               return send(res, 403, { error: 'Truy cập ngoài phạm vi thư mục dự án bị từ chối' })
             }
-            if (!existsSync(fullPath)) {
+
+            if (rev && report?.revision && rev !== report.revision && rev !== 'current') {
+              return send(res, 404, { error: `Revision ${rev} không khả dụng (hiện tại là ${report.revision})` })
+            }
+
+            if (report?.fileContents) {
+              const normalizedRel = relPath.replace(/\\/g, '/')
+              if (report.fileContents[normalizedRel]) {
+                return send(res, 200, { filePath: relPath, revision: report.revision, content: report.fileContents[normalizedRel] })
+              }
+            }
+
+            const { readFileSync, existsSync, statSync } = await import('fs')
+            if (!existsSync(fullPath) || !statSync(fullPath).isFile()) {
               return send(res, 404, { error: 'Tệp tin không tồn tại' })
             }
             const content = readFileSync(fullPath, 'utf8')
-            return send(res, 200, { filePath: relPath, revision: rev || 'current', content })
+            return send(res, 200, { filePath: relPath, revision: report?.revision || 'current', content })
           }
         }
         return send(res, 404, { error: 'not found' })
@@ -307,11 +362,17 @@ export function createWebHandler(agent: WebAgent, token: string) {
           return send(res, 200, { ok: true, provider: name, model, contextWindow, outputTokens })
         }
         case '/api/review': {
-          const { reviewProject } = await import('../review/engine.js')
-          const projectPath = str(body.projectPath) || agent.cwd
+          const { reviewProject, getCurrentReport } = await import('../review/engine.js')
+          const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+          const prev = getCurrentReport(reqSessionId || undefined)
+          const projectPath = str(body.projectPath) || prev?.projectRoot || agent.cwd
           const mode = str(body.mode)
           try {
-            const report = await reviewProject({ projectRoot: projectPath, mode: (mode as any) || 'rules' })
+            const report = await reviewProject({
+              projectRoot: projectPath,
+              mode: (mode as any) || 'rules',
+              sessionId: reqSessionId || undefined,
+            })
             return send(res, 200, { jobId: report.reviewId, status: 'completed', report })
           } catch (err) {
             return send(res, 500, { error: err instanceof Error ? err.message : String(err) })
@@ -320,50 +381,186 @@ export function createWebHandler(agent: WebAgent, token: string) {
         case '/api/review/patch': {
           const { createPatch } = await import('../review/patch.js')
           const { getCurrentReport } = await import('../review/engine.js')
-          const current = getCurrentReport()
+          const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+          const current = getCurrentReport(reqSessionId || undefined)
           if (!current) return send(res, 404, { error: 'Không tìm thấy báo cáo review hiện tại' })
           const findingIds = Array.isArray(body.findingIds) ? body.findingIds.filter((id): id is string => typeof id === 'string') : undefined
           const patch = createPatch(agent.cwd, current.findings, current.revision, findingIds)
           return send(res, 200, { patch })
         }
-        case '/api/review/apply': {
-          const { createPatch, applyPatch } = await import('../review/patch.js')
-          const { getCurrentReport, reviewProject } = await import('../review/engine.js')
-          const current = getCurrentReport()
-          if (!current) return send(res, 404, { error: 'Không tìm thấy báo cáo review' })
+                        case '/api/review/apply': {
+          const { createPatch } = await import('../review/patch.js')
+          const { getCurrentReport } = await import('../review/engine.js')
+          const { applyPatchWithSnapshot } = await import('../review/applyService.js')
+          const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+          const current = getCurrentReport(reqSessionId || undefined)
+          if (!current) return send(res, 404, { success: false, status: 'failed', error: 'Không tìm thấy báo cáo review' })
           
-          const findingId = str(body.findingId)
-          const findingIds = findingId ? [findingId] : (Array.isArray(body.findingIds) ? body.findingIds.filter((id): id is string => typeof id === 'string') : undefined)
-
-          if (!current.patch || findingIds) {
-            current.patch = createPatch(agent.cwd, current.findings, current.revision, findingIds)
-          }
-
+          const patchId = str(body.patchId)
+          const reviewId = str(body.reviewId)
           const baseRevision = str(body.baseRevision) || current.revision
           const confirm = body.confirm !== undefined ? Boolean(body.confirm) : true
-          const result = applyPatch(agent.cwd, current.patch, baseRevision, confirm)
+
+          if (!confirm) {
+            return send(res, 400, { success: false, status: 'unsupported', error: 'Yêu cầu xác nhận (confirm: true) để áp dụng bản vá' })
+          }
+
+          if (reviewId && current.reviewId && reviewId !== current.reviewId) {
+            return send(res, 400, { success: false, status: 'stale', error: `reviewId (${reviewId}) không khớp với phiên hiện tại (${current.reviewId})` })
+          }
+
+          const reqProjectPath = str(body.projectPath)
+          if (reqProjectPath) {
+            const { computeProjectId } = await import('../review/engine.js')
+            if (current.projectId && computeProjectId(reqProjectPath) !== current.projectId) {
+              return send(res, 400, { success: false, status: 'stale', error: 'Báo cáo review không thuộc về dự án đích' })
+            }
+          }
+
+          const targetRoot = current.projectRoot || agent.cwd
+
+          // Lookup patch from report.patches record
+          let patch = (current.patches && patchId) ? current.patches[patchId] : undefined
+
+          const findingId = str(body.findingId)
+          if (!patch) {
+            const targetFinding = current.findings.find(f => f.patchId === patchId || (findingId && f.id === findingId))
+            if (targetFinding && current.patches && targetFinding.patchId) {
+              patch = current.patches[targetFinding.patchId]
+            }
+          }
+
+          if (!patch) {
+            const fid = findingId || (patchId ? patchId.replace(/^patch-/, '') : undefined)
+            const findingIds = fid ? [fid] : (Array.isArray(body.findingIds) ? body.findingIds.filter((id): id is string => typeof id === 'string') : undefined)
+            if (!findingIds || findingIds.length === 0) {
+              return send(res, 400, { success: false, status: 'unsupported', error: 'Không tìm thấy bản vá khả dụng cho yêu cầu này.' })
+            }
+            patch = createPatch(targetRoot, current.findings, current.revision, findingIds)
+          }
+
+          if (!patch || !patch.files || patch.files.length === 0) {
+            return send(res, 400, { success: false, status: 'no_changes', error: 'Bản vá rỗng, không có thay đổi mã nguồn nào.' })
+          }
+
+          const result = await applyPatchWithSnapshot({
+            projectRoot: targetRoot,
+            patch,
+            baseRevision,
+            confirm,
+            sessionId: reqSessionId || undefined,
+            candidateId: findingId ? `cand-${findingId}` : undefined,
+          })
+
           if (!result.success) {
             return send(res, 400, result)
           }
-          const newReport = await reviewProject({ projectRoot: agent.cwd, mode: current.analysisMode })
-          return send(res, 200, { ...result, report: newReport })
+
+          return send(res, 200, {
+            ...result,
+            patchId: patch.id,
+            newRevision: result.newReport?.revision || baseRevision,
+            modifiedFiles: result.modifiedFiles || [],
+            report: result.newReport,
+            canUndo: true,
+          })
         }
-        case '/api/review/verify': {
-          const { runVerification } = await import('../review/verify.js')
+        case '/api/review/undo': {
+          const { undoApplyWithSnapshot } = await import('../review/applyService.js')
           const { getCurrentReport } = await import('../review/engine.js')
-          const checkCommand = str(body.checkCommand)
-          if (!checkCommand) return send(res, 400, { error: 'expected { checkCommand }' })
-          const confirm = Boolean(body.confirm)
-          if (!confirm) return send(res, 400, { error: 'Người dùng cần xác nhận chạy kiểm thử (confirm: true)' })
-          const current = getCurrentReport()
+          const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+          const current = getCurrentReport(reqSessionId || undefined)
+          if (!current) return send(res, 404, { success: false, status: 'failed', error: 'Không tìm thấy báo cáo review' })
+
+          const targetRoot = current.projectRoot || agent.cwd
+          const applyRecordId = str(body.applyRecordId)
+          const patchId = str(body.patchId)
+          const confirm = body.confirm !== undefined ? Boolean(body.confirm) : true
+
+          const result = await undoApplyWithSnapshot({
+            projectRoot: targetRoot,
+            applyRecordId,
+            patchId,
+            sessionId: reqSessionId || undefined,
+            confirm,
+          })
+
+          if (!result.success) {
+            return send(res, 400, result)
+          }
+          return send(res, 200, {
+            ...result,
+            report: result.newReport,
+          })
+        }
+                case '/api/review/tests/import': {
+          const { importTestBundle } = await import('../runner/testBundleService.js')
+          const { getCurrentReport, setCurrentReport } = await import('../review/engine.js')
+          const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+          const current = getCurrentReport(reqSessionId || undefined)
+          const targetRoot = str(body.projectPath) || current?.projectRoot || agent.cwd
+          const testFiles = Array.isArray(body.testFiles) ? (body.testFiles as any) : []
+          const overwrite = body.overwrite !== undefined ? Boolean(body.overwrite) : true
+
+          const result = importTestBundle({
+            projectRoot: targetRoot,
+            testFiles,
+            overwrite,
+          })
+
+          if (!result.success) {
+            return send(res, 400, result)
+          }
+
+          if (current) {
+            current.testsHash = result.testsHash
+            setCurrentReport(current, reqSessionId || undefined)
+          }
+
+          return send(res, 200, result)
+        }
+        case '/api/review/tests/run': {
+          const { runVerification } = await import('../review/verify.js')
+          const { getCurrentReport, setCurrentReport } = await import('../review/engine.js')
+          const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+          const current = getCurrentReport(reqSessionId || undefined)
+          const targetRoot = str(body.projectPath) || current?.projectRoot || agent.cwd
+          const checkCommand = str(body.command) || str(body.checkCommand) || 'npm test'
+          const baseRevision = current?.revision || 'rev-current'
+
+          const result = await runVerification({
+            projectRoot: targetRoot,
+            checkCommand,
+            baseRevision,
+          })
+
+          if (current) {
+            current.verification = result
+            setCurrentReport(current, reqSessionId || undefined)
+          }
+
+          return send(res, 200, {
+            success: result.status === 'passed',
+            result,
+          })
+        }
+case '/api/review/verify': {
+          const { runVerification } = await import('../review/verify.js')
+          const { getCurrentReport, setCurrentReport } = await import('../review/engine.js')
+          const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
+          const checkCommand = str(body.checkCommand) || 'npm test'
+          const confirm = body.confirm !== undefined ? Boolean(body.confirm) : true
+          const current = getCurrentReport(reqSessionId || undefined)
+          const targetRoot = current?.projectRoot || agent.cwd
           const baseRevision = current?.revision || 'rev-current'
           const result = await runVerification({
-            projectRoot: agent.cwd,
+            projectRoot: targetRoot,
             checkCommand,
             baseRevision,
           })
           if (current) {
             current.verification = result
+            setCurrentReport(current, reqSessionId || undefined)
           }
           return send(res, 200, result)
         }

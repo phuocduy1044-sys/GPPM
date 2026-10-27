@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join, resolve } from 'path';
+import { join, resolve, isAbsolute } from 'path';
 import { createHash } from 'crypto';
 import type { Finding, Patch, PatchFile, ApplyPatchResponse } from './types.js';
 
@@ -21,7 +21,7 @@ export function createPatch(
   const filesToPatch = new Map<string, { original: string; patched: string; oldHash: string }>();
 
   for (const finding of selectedFindings) {
-    const fullPath = join(root, finding.filePath);
+    const fullPath = isAbsolute(finding.filePath) ? finding.filePath : join(root, finding.filePath);
     if (!existsSync(fullPath)) continue;
 
     let fileEntry = filesToPatch.get(finding.filePath);
@@ -35,7 +35,11 @@ export function createPatch(
       filesToPatch.set(finding.filePath, fileEntry);
     }
 
-    // Apply remediation heuristics based on ruleId
+    // Apply remediation heuristics based on getFindingPatch or ruleId
+    const patchPreview = getFindingPatch(projectRoot, finding);
+    if (patchPreview && fileEntry.patched.includes(patchPreview.original)) {
+      fileEntry.patched = fileEntry.patched.replace(patchPreview.original, patchPreview.replacement);
+    }
     if (finding.ruleId === 'SEC_SQL_INJECTION') {
       // Replace queryUnsafe template literal with querySafe parameterized call
       if (fileEntry.patched.includes('queryUnsafe')) {
@@ -105,9 +109,22 @@ export function applyPatch(
   if (!confirm) {
     return {
       success: false,
+      status: 'unsupported',
+      patchId: patch?.id,
       newRevision: currentRevision,
       modifiedFiles: [],
       error: 'User confirmation required to apply patch (confirm: true).',
+    };
+  }
+
+  if (!patch || !patch.files || patch.files.length === 0) {
+    return {
+      success: false,
+      status: 'no_changes',
+      patchId: patch?.id,
+      newRevision: currentRevision,
+      modifiedFiles: [],
+      error: 'Patch is empty: no file modifications specified.',
     };
   }
 
@@ -115,6 +132,8 @@ export function applyPatch(
     patch.status = 'stale';
     return {
       success: false,
+      status: 'stale',
+      patchId: patch.id,
       newRevision: currentRevision,
       modifiedFiles: [],
       error: `Patch is stale: base revision (${patch.baseRevision}) does not match current source revision (${currentRevision}). Source has changed.`,
@@ -126,11 +145,13 @@ export function applyPatch(
 
   // Verify all files match oldHash before modifying anything (atomic check)
   for (const pf of patch.files) {
-    const fullPath = join(root, pf.filePath);
+    const fullPath = isAbsolute(pf.filePath) ? pf.filePath : join(root, pf.filePath);
     if (!existsSync(fullPath)) {
       patch.status = 'failed';
       return {
         success: false,
+        status: 'failed',
+        patchId: patch.id,
         newRevision: currentRevision,
         modifiedFiles: [],
         error: `File not found: ${pf.filePath}`,
@@ -142,6 +163,8 @@ export function applyPatch(
       patch.status = 'stale';
       return {
         success: false,
+        status: 'stale',
+        patchId: patch.id,
         newRevision: currentRevision,
         modifiedFiles: [],
         error: `File ${pf.filePath} has been modified since review (hash mismatch: expected ${pf.oldHash}, got ${currentHash}).`,
@@ -176,6 +199,8 @@ export function applyPatch(
 
   return {
     success: true,
+    status: 'applied',
+    patchId: patch.id,
     newRevision,
     modifiedFiles,
   };
@@ -228,4 +253,55 @@ function applyDiffToContent(original: string, diff: string): string {
   }
 
   return original;
+}
+
+
+export function getFindingPatch(
+  projectRoot: string,
+  finding: Finding
+): { original: string; replacement: string; diffText: string } | null {
+  const root = resolve(projectRoot);
+  const fullPath = isAbsolute(finding.filePath) ? finding.filePath : join(root, finding.filePath);
+  if (!existsSync(fullPath)) return null;
+
+  const content = readFileSync(fullPath, 'utf8');
+
+  let originalSnippet = '';
+  let replacementSnippet = '';
+
+  if (finding.ruleId === 'SEC_SQL_INJECTION') {
+    if (content.includes('queryUnsafe')) {
+      const match = content.match(/queryUnsafe\(`SELECT\s+\*\s+FROM\s+users\s+WHERE\s+username\s*=\s*'\$\{username\}'`\)/);
+      if (match) {
+        originalSnippet = match[0];
+        replacementSnippet = "querySafe('SELECT * FROM users WHERE username = $1', [username])";
+      }
+    }
+  } else if (finding.ruleId === 'BUG_POTENTIAL_NULL_DEREFERENCE') {
+    if (content.includes('if (record.passwordHash === hashPassword(password))')) {
+      originalSnippet = 'if (record.passwordHash === hashPassword(password))';
+      replacementSnippet = 'if (!record) return { success: false, reason: "User not found" };\n  if (record.passwordHash === hashPassword(password))';
+    }
+  } else if (finding.ruleId === 'STYLE_UNUSED_VARIABLE') {
+    const lines = content.split('\n');
+    if (finding.line >= 1 && finding.line <= lines.length) {
+      const line = lines[finding.line - 1];
+      if (line.includes('const clientIp')) {
+        originalSnippet = 'const clientIp';
+        replacementSnippet = 'const _clientIp';
+      }
+    }
+  }
+
+  if (!originalSnippet || !replacementSnippet) {
+    return null;
+  }
+
+  const diffText = `--- a/${finding.filePath}\n+++ b/${finding.filePath}\n@@ -${finding.line},1 +${finding.line},1 @@\n-${originalSnippet}\n+${replacementSnippet}`;
+
+  return {
+    original: originalSnippet,
+    replacement: replacementSnippet,
+    diffText,
+  };
 }

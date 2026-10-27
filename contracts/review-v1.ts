@@ -13,15 +13,32 @@ export type FindingConfidence = 'certain' | 'high' | 'medium' | 'low';
 
 export type AnalysisMode = 'rules' | 'ai' | 'rules_only_fallback';
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimated?: boolean;
+}
+
+export interface AiProvenance {
+  selectedFiles: string[];
+  selectedNodes: string[];
+  graphNeighborhoodSize?: number;
+  completedAt?: string;
+}
+
 export interface ProviderInfo {
   provider: string; // e.g. 'deepseek', 'ollama', 'none'
   model: string;    // e.g. 'deepseek-coder', 'qwen2.5-coder'
   isFallback: boolean;
   fallbackReason?: string;
+  usage?: TokenUsage;
+  provenance?: AiProvenance;
 }
 
 export interface GraphNode {
-  id: string;                      // unique node id, e.g. 'file:src/app.ts' or 'fn:src/app.ts:runAudit'
+  id: string;
+  patchId?: string;                      // unique node id, e.g. 'file:src/app.ts' or 'fn:src/app.ts:runAudit'
   type: 'file' | 'function';
   name: string;                    // file name or function name
   filePath: string;                // relative to project root
@@ -51,6 +68,8 @@ export interface UnresolvedCall {
 
 export interface Finding {
   id: string;                      // e.g. 'finding-sec-01'
+  patchId?: string;
+  status?: 'open' | 'applied' | 'stale';
   ruleId: string;                  // e.g. 'SEC_SQL_INJECTION', 'BUG_UNHANDLED_REJECTION'
   category: FindingCategory;
   severity: FindingSeverity;
@@ -65,6 +84,12 @@ export interface Finding {
   source: FindingSource;
   confidence: FindingConfidence;
   confidenceReason?: string;
+  canPatch?: boolean;
+  patchPreview?: {
+    original: string;
+    replacement: string;
+    diffText: string;
+  };
 }
 
 export interface PatchFile {
@@ -81,20 +106,33 @@ export interface Patch {
   id: string;
   findingIds: string[];
   baseRevision: string;
+  newRevision?: string;
+  reviewId?: string;
+  createdAt?: string;
   files: PatchFile[];
   fullDiff: string;
   status: PatchStatus;
   appliedAt?: string;
   error?: string;
+  record?: ApplyRecord;
+  canUndo?: boolean;
+  report?: ReviewReport;
 }
 
-export type VerificationStatus = 'not_run' | 'running' | 'passed' | 'failed' | 'error' | 'timed_out';
+export type VerificationStatus = 'not_run' | 'running' | 'passed' | 'failed' | 'error' | 'timed_out' | 'cancelled' | 'no_tests' | 'stale' | 'unsupported';
 
 export interface TestsSummary {
   passed: number;
   failed: number;
   total: number;
   skipped?: number;
+}
+
+export interface TestCase {
+  name: string;
+  status: 'passed' | 'failed' | 'skipped';
+  durationMs?: number;
+  failureMessage?: string;
 }
 
 export interface VerificationResult {
@@ -109,6 +147,7 @@ export interface VerificationResult {
   stderr: string;
   sanitizedLog: string;
   testsSummary?: TestsSummary;
+  tests?: TestCase[];
   verifiedAt: string;
 }
 
@@ -121,9 +160,58 @@ export interface ScanScope {
   limitsReached?: boolean;
 }
 
+export interface RuntimeFingerprint {
+  platform: string;
+  arch: string;
+  nodeVersion: string;
+  dependenciesHash?: string;
+}
+
+export interface Candidate {
+  candidateId: string;
+  findingId: string;
+  patchId: string;
+  patch: Patch;
+  baseRevision: string;
+  targetRevision?: string;
+  patchHash: string;
+  status: 'proposed' | 'applied' | 'rejected' | 'undone';
+  verificationBefore?: VerificationResult;
+  verificationAfter?: VerificationResult;
+  createdAt: string;
+}
+
+export interface ApplyRecord {
+  recordId: string;
+  patchId: string;
+  candidateId?: string;
+  findingIds?: string[];
+  baseRevision: string;
+  newRevision: string;
+  snapshotBeforeId: string;
+  snapshotAfterId: string;
+  patchHash: string;
+  sourceHashBefore?: string;
+  sourceHashAfter?: string;
+  modifiedFiles: string[];
+  appliedAt: string;
+  status: 'applied' | 'undone';
+}
+
+export interface UndoRecord {
+  recordId: string;
+  applyRecordId: string;
+  patchId: string;
+  restoredRevision: string;
+  restoredFiles: string[];
+  undoneAt: string;
+}
+
 export interface ReviewReport {
   schemaVersion: 1;
   reviewId: string;
+  sessionId?: string;
+  projectId?: string;
   revision: string;                // SHA/hash of analyzed source tree
   timestamp: string;               // ISO 8601
   projectName: string;
@@ -144,8 +232,16 @@ export interface ReviewReport {
   fileContents?: Record<string, string>;
   isOutdated?: boolean;
   patch?: Patch;
+  patches?: Record<string, Patch>;
   verification?: VerificationResult;
   userRequirement?: string;
+  sourceHash?: string;
+  testsHash?: string;
+  configHash?: string;
+  runtimeFingerprint?: RuntimeFingerprint;
+  candidates?: Record<string, Candidate>;
+  applyHistory?: ApplyRecord[];
+  undoHistory?: UndoRecord[];
 }
 
 // Request & Response types for Local API
@@ -175,11 +271,34 @@ export interface ApplyPatchRequest {
   confirm: boolean;
 }
 
+export type ApplyPatchStatus = 'applied' | 'no_changes' | 'unsupported' | 'stale' | 'failed';
+
+export interface UndoPatchRequest {
+  applyRecordId?: string;
+  patchId?: string;
+  reviewId?: string;
+  confirm?: boolean;
+}
+
+export interface UndoPatchResponse {
+  success: boolean;
+  status?: 'undone' | 'no_changes' | 'stale' | 'failed';
+  restoredRevision?: string;
+  restoredFiles?: string[];
+  error?: string;
+  report?: ReviewReport;
+}
+
 export interface ApplyPatchResponse {
   success: boolean;
+  status?: ApplyPatchStatus;
+  patchId?: string;
   newRevision: string;
   modifiedFiles: string[];
   error?: string;
+  record?: ApplyRecord;
+  canUndo?: boolean;
+  report?: ReviewReport;
 }
 
 export interface VerifyRequest {
@@ -198,4 +317,37 @@ export interface SourceViewResponse {
   revision: string;
   content: string;
   error?: string;
+}
+
+export interface ImportedTestFile {
+  filePath: string;
+  content: string;
+}
+
+export interface ImportTestsRequest {
+  projectPath?: string;
+  testFiles: ImportedTestFile[];
+  overwrite?: boolean;
+}
+
+export interface ImportTestsResponse {
+  success: boolean;
+  importedFiles: string[];
+  testsHash: string;
+  error?: string;
+}
+
+export interface DiscoveredCheckCommand {
+  kind: 'test_suite' | 'typecheck' | 'linter' | 'build' | 'custom';
+  command: string;
+  framework?: string;
+  isDefault: boolean;
+  description?: string;
+}
+
+export interface GetTestsResponse {
+  testFiles: string[];
+  suggestedCommands: DiscoveredCheckCommand[];
+  testsHash?: string;
+  hasTests: boolean;
 }

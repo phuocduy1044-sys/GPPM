@@ -4,6 +4,21 @@
  * the address bar, so a screenshot or a copied URL doesn't carry it.
  */
 const KEY = 'viecodie-token'
+const SESSION_KEY = 'viecodie-review-session'
+
+export function readSessionId(): string | null {
+  if (typeof window === 'undefined') return null
+  const mHash = location.hash.match(/session=([\w-]+)/)
+  const mSearch = location.search.match(/[?&]session=([\w-]+)/)
+  const val = mHash?.[1] || mSearch?.[1]
+  if (val) {
+    try { sessionStorage.setItem(SESSION_KEY, val) } catch { /* private mode */ }
+    return val
+  }
+  try { return sessionStorage.getItem(SESSION_KEY) } catch { return null }
+}
+
+export const reviewSessionId = readSessionId()
 
 function readToken(): string | null {
   const mHash = location.hash.match(/token=([\w-]+)/)
@@ -13,7 +28,9 @@ function readToken(): string | null {
   if (val) {
     try { sessionStorage.setItem(KEY, val) } catch { /* private mode — keep it in memory */ }
     if (mHash || mSearch) {
-      history.replaceState(null, '', location.pathname)
+      const curSession = readSessionId()
+      const searchPart = curSession ? `?session=${encodeURIComponent(curSession)}` : ''
+      history.replaceState(null, '', location.pathname + searchPart)
     }
     return val
   }

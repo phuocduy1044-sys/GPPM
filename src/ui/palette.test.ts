@@ -9,8 +9,20 @@ import { filteredCommands, allCommands, paletteWindow } from './CommandPalette.j
 describe('command palette', () => {
   it('offers the built-ins', () => {
     const names = allCommands().map((c) => c.name)
+    expect(names.length).toBe(14)
     expect(names).toContain('/plan')
-    expect(names).toContain('/permissions')
+    expect(names).toContain('/models')
+    expect(names).toContain('/context')
+    expect(names).toContain('/review')
+    expect(names).toContain('/graph')
+    expect(names).not.toContain('/permissions')
+    expect(names).not.toContain('/vim')
+    expect(names).not.toContain('/memory')
+    expect(names).not.toContain('/agents')
+    expect(names).not.toContain('/cost')
+    expect(names).not.toContain('/provider')
+    expect(names).not.toContain('/rewind')
+    expect(names).not.toContain('/export')
     expect(names.every((n) => n.startsWith('/'))).toBe(true)
   })
 

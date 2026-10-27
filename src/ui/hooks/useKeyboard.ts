@@ -807,14 +807,10 @@ export function useKeyboard(opts: KeyboardOptions) {
         pushHistory(trimmed)
         historyIndex = -1
         historyDraft = ''
-        if (trimmed === '/models') {
+        if (trimmed === '/models' || trimmed === '/provider' || trimmed === '/providers') {
           setPickerQuery('')
           setCursor(() => Math.max(0, models.findIndex((m) => m === cfg.model)))
           setState('models')
-        } else if (trimmed === '/provider' || trimmed === '/providers') {
-          setPickerQuery('')
-          setCursor(() => Math.max(0, providers.findIndex((p) => p.name === cfg.provider)))
-          setState('providers')
         } else if (trimmed === '/copy' || trimmed.startsWith('/copy ')) {
           const arg = trimmed.slice('/copy'.length).trim()
           const target = parseCopyTarget(arg)
@@ -847,32 +843,33 @@ export function useKeyboard(opts: KeyboardOptions) {
           const next: PermissionMode = modeRef.current === 'plan' ? 'default' : 'plan'
           setMode(next)
           noticeMode(next)
-        } else if (trimmed === '/permissions') {
-          showPermissions()
-        } else if (trimmed === '/settings') {
+        } else if (trimmed === '/settings' || trimmed === '/permissions') {
           invalidateSettings()
-          report(`⚙ **settings**\n\n${settingsReport(process.cwd())}`)
-        } else if (trimmed === '/context') {
-          report(contextReport(agentHistory, modeRef.current, activeCtx, process.cwd()))
-        } else if (trimmed === '/cost') {
+          const sections = (['project', 'user'] as const).map((scope) => {
+            const rules = loadScopedRules(scope)
+            const where = scope === 'project' ? '`.viecodie/permissions.json` (this project)' : '`~/.viecodie/permissions.json` (every project)'
+            if (!rules.length) return `**${scope} rules** — ${where}\n*Chưa có quy tắc phê duyệt nào.*`;
+            const lines = rules.map((r) => `- \`${r.tool}\` → \`${r.pattern}\``).join('\n');
+            return `**${scope} rules** — ${where}\n${lines}`;
+          })
+          report(`⚙ **settings & approval rules**\n\n${settingsReport(process.cwd())}\n\n### ⚖ Approval Rules\n\n${sections.join('\n\n')}`)
+        } else if (trimmed === '/context' || trimmed === '/cost') {
           const active = providers.find((pr) => pr.name === resolveProvider().name)
-          report(costReport(totals, cfg.model, active?.name ?? 'unknown', active?.kind === 'local'))
+          report(contextReport(agentHistory, modeRef.current, activeCtx, process.cwd(), totals, cfg.model, active?.name ?? 'unknown', active?.kind === 'local'))
         } else if (trimmed === '/mcp') {
           report(mcpReport(mcpServers))
-        } else if (trimmed === '/agents') {
-          report(agentsReport(process.cwd()))
         } else if (trimmed === '/init') {
           setNotice(null)
           sendMessage(INIT_PROMPT)
         } else if (trimmed === '/review' || trimmed.startsWith('/review ') || trimmed === '/Review' || trimmed.startsWith('/Review ')) {
           setNotice(null)
           import('../handlers/reviewGraphHandler.js')
-            .then(({ handleReviewCommand }) => handleReviewCommand(trimmed, process.cwd(), report, setNotice, agentHistory, messages))
+            .then(({ handleReviewCommand }) => handleReviewCommand(trimmed, process.cwd(), report, setNotice, agentHistory, messages, sessionId))
             .catch((err) => report(`❌ ${err instanceof Error ? err.message : String(err)}`))
         } else if (trimmed.toLowerCase() === '/graph' || trimmed.toLowerCase().startsWith('/graph ')) {
           setNotice(null)
           import('../handlers/reviewGraphHandler.js')
-            .then(({ handleGraphCommand }) => handleGraphCommand(process.cwd(), report, setNotice))
+            .then(({ handleGraphCommand }) => handleGraphCommand(process.cwd(), report, setNotice, sessionId))
             .catch((err) => report(`❌ ${err instanceof Error ? err.message : String(err)}`))
         } else if (trimmed === '/export' || trimmed.startsWith('/export ')) {
           if (!messages.length) setNotice('nothing to export yet')
@@ -884,31 +881,13 @@ export function useKeyboard(opts: KeyboardOptions) {
               setNotice(`export failed — ${err instanceof Error ? err.message : String(err)}`)
             }
           }
-        } else if (trimmed === '/memory') {
-          const project = findContextFile(process.cwd())
-          report(
-            `🧠 **memory**\n\n` +
-            `- project: ${project ? `\`${project}\`` : `none yet — \`#\` a line to create ${CONTEXT_FILENAME}`}\n` +
-            `- yours everywhere: \`${userContextPath()}\`\n\n` +
-            `Start a line with \`#\` to append to the project file, or \`##\` for your own.`,
-          )
         } else if (trimmed === '/rewind' || trimmed.startsWith('/rewind ')) {
           rewind(trimmed.slice('/rewind'.length).trim())
-        } else if (trimmed === '/vim') {
-          vimEnabled = !vimEnabled
-          vimMode = 'insert'
-          vimPending = null
-          setNotice(
-            vimEnabled
-              ? 'vim keys on — esc for normal mode · hjkl w b 0 $ x dd dw cw D C i a A o'
-              : 'vim keys off',
-          )
         } else if (trimmed === '/exit') {
           exit()
-        } else if (trimmed.startsWith('/provider ')) {
-          // One command, three jobs: `add`/`remove` manage the list, anything
-          // else is a name to switch to.
-          const argv = trimmed.slice('/provider '.length).trim().split(/\s+/)
+        } else if (trimmed.startsWith('/provider ') || trimmed.startsWith('/models add') || trimmed.startsWith('/models remove') || trimmed.startsWith('/models rm')) {
+          const commandPrefix = trimmed.startsWith('/provider ') ? '/provider ' : '/models '
+          const argv = trimmed.slice(commandPrefix.length).trim().split(/\s+/)
           const [verb, ...rest] = argv
           if (verb === 'add') {
             const res = addByName(rest)
@@ -929,7 +908,7 @@ export function useKeyboard(opts: KeyboardOptions) {
             } else {
               setNotice(
                 `unknown provider "${p}" — configured: ${names.join(', ')}\n` +
-                `add one with: /provider add <name> [apiKey]`,
+                `add one with: /models add <name> [apiKey]`,
               )
             }
           }

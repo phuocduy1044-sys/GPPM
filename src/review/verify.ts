@@ -1,6 +1,8 @@
 import { spawn } from 'child_process';
 import { resolve } from 'path';
-import type { VerificationResult, TestsSummary } from './types.js';
+import type { VerificationResult, TestsSummary, VerificationStatus } from './types.js';
+import { defaultRunnerService } from '../runner/service.js';
+import { scrubSecrets } from './scrub.js';
 
 export interface RunVerifyOptions {
   projectRoot: string;
@@ -8,18 +10,20 @@ export interface RunVerifyOptions {
   baseRevision: string;
   timeoutSec?: number;
   maxLogBytes?: number;
+  isolate?: 'container' | 'process';
 }
 
 export function sanitizeLog(raw: string): string {
   // Strip ANSI color escape codes
   let clean = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-  // Mask potential secrets / tokens
+  // Mask potential secrets / tokens thoroughly
+  clean = scrubSecrets(clean);
   clean = clean.replace(/(api[_-]?key|token|secret|password)\s*[:=]\s*['"]?[a-zA-Z0-9_\-\.]{8,}['"]?/gi, '$1: [REDACTED]');
   return clean;
 }
 
 export function parseTestsSummary(output: string): TestsSummary | undefined {
-  // Try parsing Vitest/Jest output: "Tests  2 passed (2)" or "Tests: 2 passed, 2 total"
+  // 1. Vitest / Jest: "Tests  2 passed (2)" or "Tests: 2 passed, 2 total"
   const vitestMatch = output.match(/Tests\s+(\d+)\s+passed(?:,\s*(\d+)\s+failed)?\s*(?:\((\d+)\))?/i);
   if (vitestMatch) {
     const passed = parseInt(vitestMatch[1], 10);
@@ -36,104 +40,95 @@ export function parseTestsSummary(output: string): TestsSummary | undefined {
     return { passed, failed, total };
   }
 
-  // Generic pass / fail counting
-  const passedCount = (output.match(/(?:✓|PASS|passed)\s+/gi) || []).length;
-  const failedCount = (output.match(/(?:✕|FAIL|failed)\s+/gi) || []).length;
-  if (passedCount > 0 || failedCount > 0) {
-    return {
-      passed: passedCount,
-      failed: failedCount,
-      total: passedCount + failedCount,
-    };
+  // 2. TAP / Node.js test runner summary: "# tests 3", "# pass 1", "# fail 2"
+  const tapTests = output.match(/#\s*tests\s+(\d+)/i) || output.match(/ℹ\s*tests\s+(\d+)/i);
+  const tapPass = output.match(/#\s*pass\s+(\d+)/i) || output.match(/ℹ\s*pass\s+(\d+)/i);
+  const tapFail = output.match(/#\s*fail\s+(\d+)/i) || output.match(/ℹ\s*fail\s+(\d+)/i);
+  const tapSkip = output.match(/#\s*skipped?\s+(\d+)/i) || output.match(/ℹ\s*skipped?\s+(\d+)/i);
+
+  if (tapTests || tapPass || tapFail) {
+    const passed = tapPass ? parseInt(tapPass[1], 10) : 0;
+    const failed = tapFail ? parseInt(tapFail[1], 10) : 0;
+    const skipped = tapSkip ? parseInt(tapSkip[1], 10) : 0;
+    const total = tapTests ? parseInt(tapTests[1], 10) : (passed + failed + skipped);
+    return { passed, failed, total, skipped };
+  }
+
+  // 3. Counting TAP ok / not ok lines:
+  const notOkMatches = output.match(/^\s*not ok\s+\d+/gmi) || [];
+  const okMatches = output.match(/^\s*ok\s+\d+/gmi) || [];
+  if (notOkMatches.length > 0 || okMatches.length > 0) {
+    const failed = notOkMatches.length;
+    const passed = okMatches.length;
+    return { passed, failed, total: passed + failed };
+  }
+
+  // 4. Generic pass / fail symbols like "✓ 5 passed"
+  const symPass = output.match(/(?:✓|PASS)\s*(\d+)?/gi);
+  const symFail = output.match(/(?:✕|FAIL)\s*(\d+)?/gi);
+  if (symPass || symFail) {
+    let passed = 0;
+    if (symPass) {
+      for (const m of symPass) {
+        const num = m.replace(/[^\d]/g, '');
+        passed += num ? parseInt(num, 10) : 1;
+      }
+    }
+    let failed = 0;
+    if (symFail) {
+      for (const m of symFail) {
+        const num = m.replace(/[^\d]/g, '');
+        failed += num ? parseInt(num, 10) : 1;
+      }
+    }
+    if (passed > 0 || failed > 0) {
+      return { passed, failed, total: passed + failed };
+    }
   }
 
   return undefined;
 }
 
 export async function runVerification(options: RunVerifyOptions): Promise<VerificationResult> {
-  const { projectRoot, checkCommand, baseRevision, timeoutSec = 60, maxLogBytes = 512 * 1024 } = options;
-  const startTime = Date.now();
+  const { projectRoot, checkCommand, baseRevision, timeoutSec = 60, maxLogBytes = 512 * 1024, isolate } = options;
   const root = resolve(projectRoot);
-  const checkId = `chk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
-  return new Promise<VerificationResult>((resolvePromise) => {
-    let stdoutBuffer = '';
-    let stderrBuffer = '';
-    let timedOut = false;
-
-    // Use platform shell to execute checkCommand safely within project root
-    const child = spawn(checkCommand, {
-      cwd: root,
-      shell: true,
-      env: { ...process.env, CI: 'true', FORCE_COLOR: '0' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 2000);
-    }, timeoutSec * 1000);
-
-    child.stdout?.on('data', (chunk: Buffer) => {
-      if (stdoutBuffer.length < maxLogBytes) {
-        stdoutBuffer += chunk.toString('utf8');
-      }
-    });
-
-    child.stderr?.on('data', (chunk: Buffer) => {
-      if (stderrBuffer.length < maxLogBytes) {
-        stderrBuffer += chunk.toString('utf8');
-      }
-    });
-
-    child.on('error', (err: Error) => {
-      clearTimeout(timer);
-      const durationMs = Date.now() - startTime;
-      resolvePromise({
-        checkId,
-        command: checkCommand,
-        status: 'error',
-        baseRevision,
-        exitCode: -1,
-        durationMs,
-        stdout: stdoutBuffer,
-        stderr: err.message,
-        sanitizedLog: sanitizeLog(err.message),
-        verifiedAt: new Date().toISOString(),
-      });
-    });
-
-    child.on('close', (code: number | null) => {
-      clearTimeout(timer);
-      const durationMs = Date.now() - startTime;
-      const combinedOutput = `${stdoutBuffer}\n${stderrBuffer}`;
-      const sanitized = sanitizeLog(combinedOutput);
-      const summary = parseTestsSummary(sanitized);
-
-      let status: VerificationResult['status'];
-      if (timedOut) {
-        status = 'timed_out';
-      } else if (code === 0) {
-        status = 'passed';
-      } else {
-        status = 'failed';
-      }
-
-      resolvePromise({
-        checkId,
-        command: checkCommand,
-        status,
-        baseRevision,
-        targetRevision: baseRevision,
-        exitCode: code,
-        durationMs,
-        stdout: stdoutBuffer,
-        stderr: stderrBuffer,
-        sanitizedLog: sanitized,
-        testsSummary: summary,
-        verifiedAt: new Date().toISOString(),
-      });
-    });
+  const res = await defaultRunnerService.execute({
+    projectRoot: root,
+    command: checkCommand,
+    baseRevision,
+    timeoutSec,
+    maxLogBytes,
+    isolate,
   });
+
+  const testsSummary: TestsSummary | undefined = res.testReport ? {
+    passed: res.testReport.passed,
+    failed: res.testReport.failed,
+    total: res.testReport.total,
+    skipped: res.testReport.skipped,
+  } : parseTestsSummary(res.sanitizedLog);
+
+  const tests = res.testReport?.tests?.map((t) => ({
+    name: t.name,
+    status: t.status,
+    durationMs: t.durationMs,
+    failureMessage: t.error,
+  }));
+
+  return {
+    checkId: res.runId,
+    command: res.command,
+    status: res.status as VerificationStatus,
+    baseRevision,
+    targetRevision: res.targetRevision || baseRevision,
+    exitCode: res.exitCode,
+    durationMs: res.durationMs,
+    stdout: res.stdout,
+    stderr: res.stderr,
+    sanitizedLog: res.sanitizedLog,
+    testsSummary,
+    tests,
+    verifiedAt: res.executedAt,
+  };
 }

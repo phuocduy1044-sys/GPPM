@@ -33,7 +33,7 @@ export function ProviderPicker({ entries, cursor, activeName, query }: Props) {
       <Text dimColor>chọn nhà cung cấp</Text>
       <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor={C.gray} paddingX={1}>
         {entries.length === 0 ? (
-          <Text dimColor>chưa cấu hình nhà cung cấp nào — thử dùng /provider add ollama</Text>
+          <Text dimColor>chưa cấu hình nhà cung cấp nào — thử dùng /models add ollama</Text>
         ) : (
           entries.map((e, i) => {
             const sel = i === cursor
@@ -56,7 +56,7 @@ export function ProviderPicker({ entries, cursor, activeName, query }: Props) {
 
         {addable.length > 0 ? (
           <Box marginTop={1} flexDirection="column">
-            <Text dimColor>{'  '}khả dụng — /provider add &lt;tên&gt; [khóaApi]</Text>
+            <Text dimColor>{'  '}khả dụng — /models add &lt;tên&gt; [khóaApi]</Text>
             {addable.map(([name, p]) => (
               <Text key={name} dimColor>
                 {'  '}
