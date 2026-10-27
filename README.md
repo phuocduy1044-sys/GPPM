@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-brightgreen.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+[![npm package](https://img.shields.io/badge/npm-%40demoapplication%2Fviecodie-red.svg)](https://www.npmjs.com/package/@demoapplication/viecodie)
 [![AI Providers](https://img.shields.io/badge/AI-DeepSeek%20%7C%20Ollama-orange.svg)](https://deepseek.com)
 [![Status](https://img.shields.io/badge/Build-Passing-emerald.svg)](./docs/EVIDENCE.md)
 
@@ -35,14 +36,25 @@ Không soi từng dòng code rời rạc như linter truyền thống hay phán 
 
 ## 🚀 Cài đặt nhanh (Quickstart)
 
-### Cách 1: Cài đặt tự động trên Windows (Khuyên dùng)
+### Cách 1: Cài đặt toàn cục qua npm (Khuyên dùng)
+```bash
+# Cài đặt phiên bản mới nhất
+npm install -g @demoapplication/viecodie
+
+# Cập nhật phiên bản mới nhất
+npm install -g @demoapplication/viecodie@latest
+
+# Khởi chạy CLI
+viecodie
+```
+
+### Cách 2: Cài đặt tự động trên Windows
 Chỉ cần nhấp đúp vào tệp [**`INSTALL.BAT`**](./INSTALL.BAT) ở thư mục gốc:
 ```bat
 INSTALL.BAT
 ```
-Trình cài đặt sẽ tự động thiết lập Node.js, biên dịch ứng dụng và hướng dẫn bạn chọn chế độ Online (DeepSeek) hoặc Offline (Ollama).
 
-### Cách 2: Cài đặt từ mã nguồn
+### Cách 3: Cài đặt từ mã nguồn
 ```bash
 # 1. Clone repository
 git clone https://github.com/phuocduy1044-sys/GPPM.git
@@ -60,28 +72,51 @@ npm link
 
 ## 💻 Hướng dẫn sử dụng (Usage)
 
-### 1. Sử dụng qua giao diện dòng lệnh (CLI)
+### 1. Luồng lệnh CLI độc lập (Non-interactive)
 ```bash
-# Quét và review toàn bộ dự án
+# Phân tích và review toàn bộ thư mục mã nguồn
 viecodie review ./src
 
-# Xuất báo cáo kết quả định dạng JSON cho CI/CD
+# Xuất báo cáo kết quả định dạng JSON phục vụ CI/CD
 viecodie review ./src --output-format json
 
 # Chạy bộ kiểm thử xác minh kết quả sửa code
 viecodie verify ./src --check "npm test"
+
+# Mở giao diện trực quan Web Graph Review từ kết quả vừa quét
+viecodie web
 ```
 
-### 2. Sử dụng qua giao diện Web (Code Reviewer by Graph)
+### 2. Danh sách 14 Lệnh Slash trong Interactive Terminal CLI
+Hệ thống chuẩn hóa danh mục **14 lệnh slash cốt lõi**, gộp các lệnh trùng lặp (`/cost` tích hợp vào `/context`, `/provider` tích hợp vào `/models`) để tạo trải nghiệm mượt mà:
+
+| Lệnh Slash | Chức năng chính | Mô tả chi tiết |
+| :--- | :--- | :--- |
+| `/help` | Trợ giúp & Phím tắt | Hiển thị bảng tra cứu nhanh toàn bộ câu lệnh, cú pháp và phím tắt điều hướng. |
+| `/review` | Rà soát mã nguồn | Kích hoạt bộ máy phân tích tĩnh AST và suy luận AI trên thư mục mục tiêu. |
+| `/graph` | Mở Web Graph Review | Khởi chạy máy chủ cục bộ và mở trực tiếp giao diện Web Code Reviewer by Graph. |
+| `/verify` | Kiểm chứng bản sửa | Chạy lại bộ kiểm thử tự động trong môi trường sandbox để xác minh bản vá. |
+| `/patch` | Quản lý bản vá | Xem danh sách bản vá đề xuất và lựa chọn áp dụng từng phần hoặc toàn bộ. |
+| `/diff` | So sánh thay đổi | Hiển thị Unified Diff chi tiết giữa mã nguồn gốc và mã sau khi vá lỗi. |
+| `/undo` | Hoàn tác bản vá | Khôi phục mã nguồn về trạng thái nguyên bản trước khi thực hiện apply patch. |
+| `/models` | Cấu hình Mô hình & Provider | Xem, chuyển đổi mô hình (DeepSeek R1/V3, Ollama) và cấu hình endpoint provider (đã gộp `/provider`). |
+| `/context` | Quản lý Ngữ cảnh & Chi phí | Hiển thị kích thước cửa sổ ngữ cảnh, số lượng tokens đã dùng và ước tính chi phí API (đã gộp `/cost`). |
+| `/session` | Quản lý Phiên làm việc | Lưu trữ, xuất hoặc tải lại lịch sử phiên review hiện tại. |
+| `/config` | Cài đặt hệ thống | Tùy chỉnh các tham số cấu hình: timeout, sandbox runner, đường dẫn bỏ qua. |
+| `/status` | Kiểm tra trạng thái | Báo cáo tình trạng kết nối LLM, backend runner, bộ nhớ và quyền truy cập thư mục. |
+| `/clear` | Xóa màn hình | Xóa sạch nội dung hội thoại trên màn hình terminal nhưng giữ nguyên ngữ cảnh phiên. |
+| `/exit` | Thoát ứng dụng | Kết thúc phiên làm việc CLI an toàn (hỗ trợ cả alias `/quit`). |
+
+### 3. Sử dụng qua giao diện Web (Code Reviewer by Graph)
 Khởi động giao diện web:
 ```bash
 viecodie web
 ```
 Trình duyệt sẽ tự động mở tại `http://localhost:5173`:
-1. **Khung giữa:** Tương tác trên đồ thị SVG, bấm vào hàm để xem các hàm gọi liên quan.
+1. **Khung giữa:** Tương tác trên đồ thị SVG, hover hoặc click vào hàm để highlight các hàm gọi nó (Caller) và hàm nó gọi (Callee), làm mờ các thành phần không liên quan.
 2. **Khung bên phải:** Xem giải thích chi tiết nguyên nhân gốc rễ và xem trước bản vá đề xuất (Diff).
-3. **Nút "Áp dụng bản sửa (Apply Patch)":** Cập nhật mã nguồn an toàn với 1 cú click.
-4. **Hộp Test Drawer bên dưới:** Bấm *"Chạy lại kiểm thử"* để xác nhận toàn bộ test suites đã chuyển sang màu xanh (Passed).
+3. **Nút "Áp dụng bản sửa (Apply Patch)":** Cập nhật mã nguồn an toàn với 1 cú click (yêu cầu xác thực `confirm: true`).
+4. **Hộp Test Drawer bên dưới:** Bấm *"Chạy lại kiểm thử"* để theo dõi danh sách từng ca kiểm thử con và trạng thái trực quan: **ĐẠT** (xanh), **TRƯỢT** (đỏ), **KHÔNG CÓ TEST** (xám).
 
 ---
 
@@ -89,14 +124,15 @@ Trình duyệt sẽ tự động mở tại `http://localhost:5173`:
 
 Dự án được xây dựng tuân thủ nghiêm ngặt chuẩn mực nguồn mở và tiêu chí của Hội thi Tin học Trẻ (Bảng 3 GPPM):
 
-* 📊 [**docs/POF-AUDIT.md**](./docs/POF-AUDIT.md): Báo cáo đánh giá 15 tiêu chí PoF theo chuẩn VFOSSA (Rủi ro ≤ 15 điểm).
-* 🏗️ [**docs/ARCHITECTURE.md**](./docs/ARCHITECTURE.md): Sơ đồ luồng dữ liệu, Call Graph Engine và ranh giới tin cậy (Trust Boundary).
+* 📊 [**docs/POF-AUDIT.md**](./docs/POF-AUDIT.md): Báo cáo đánh giá 15 tiêu chí PoF theo chuẩn VFOSSA (Rủi ro an toàn ≤ 15 điểm, ngưỡng tối đa 60).
+* 🏗️ [**docs/ARCHITECTURE.md**](./docs/ARCHITECTURE.md): Sơ đồ kiến trúc RunnerService (ProcessRunner / ContainerRunner) và luồng bảo vệ 6 tầng.
+* 🧪 [**benchmark/ground-truth.json**](./benchmark/ground-truth.json): Bộ dữ liệu kiểm chứng 20 ca mẫu (`benchmark/cases/`) đạt Precision 100%, Recall 100%, FPR 0%.
 * 📜 [**docs/ORIGIN.md**](./docs/ORIGIN.md): Minh bạch nguồn gốc kế thừa từ `maruakshay/miii-cli` và phân định bản quyền.
-* 📝 [**CHANGES_GPPM.md**](./CHANGES_GPPM.md): Chi tiết toàn bộ các đóng góp mới của đội thi.
+* 📝 [**CHANGES_GPPM.md**](./CHANGES_GPPM.md): Chi tiết 4 module sáng tạo độc lập của đội thi.
 * 📦 [**THIRD_PARTY.md**](./THIRD_PARTY.md): Danh mục kiểm kê 100% giấy phép của các thư viện phụ thuộc.
 * 🎯 [**docs/DEMO.md**](./docs/DEMO.md): Kịch bản thuyết trình & demo sản phẩm chuẩn 4 phút.
-* ❓ [**docs/QA.md**](./docs/QA.md): Bộ 8 câu hỏi phản biện kỹ thuật chuyên sâu và câu trả lời.
-* 🏆 [**docs/EVIDENCE.md**](./docs/EVIDENCE.md): Bảng đối chiếu 12 tiêu chí chấm điểm của đề thi Bảng 3 GPPM.
+* ❓ [**docs/QA.md**](./docs/QA.md): Bộ 9 câu hỏi phản biện kỹ thuật chuyên sâu và câu trả lời.
+* 🏆 [**docs/EVIDENCE.md**](./docs/EVIDENCE.md): Bảng đối chiếu 12 tiêu chí chấm điểm và minh chứng 59 test files, 797 tests passed.
 * 🤝 [**CONTRIBUTING.md**](./CONTRIBUTING.md) & 🛡️ [**SECURITY.md**](./SECURITY.md): Quy ước đóng góp và chính sách bảo mật.
 
 ---

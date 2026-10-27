@@ -38,13 +38,79 @@ VIECODIE được thiết kế theo mô hình **Một bộ máy lõi dùng chung
        │                                                                                 │
        │   4. Patch & Verification Engine                                                │
        │      ├─ Sinh mã vá lỗi định dạng Diff (Unified Diff)                            │
-       │      └─ Bộ thực thi kiểm thử độc lập (Test Runner) kiểm chứng kết quả sửa      │
+       │      └─ Bộ thực thi kiểm thử độc lập (Unified Runner Sandbox)                   │
        └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. Luồng xử lý chi tiết (Pipeline)
+## 2. Kiến trúc RunnerService (ProcessRunner & ContainerRunner)
+
+Hệ thống phân tách lớp thực thi kiểm thử thông qua giao diện trừu tượng `RunnerService`, cho phép linh hoạt lựa chọn giữa môi trường tiến trình cục bộ có kiểm soát hoặc môi trường Docker container cô lập tuyệt đối.
+
+```mermaid
+flowchart TD
+    subgraph Client ["Client Invocation"]
+        A["CLI: viecodie verify"] --> C{"Runner Selection"}
+        B["Web: TestDrawer Trigger"] --> C
+    end
+
+    subgraph ServiceLayer ["RunnerService (Trừu tượng)"]
+        C -->|"strategy: process (default)"| D["ProcessRunner Backend"]
+        C -->|"strategy: container"| E["ContainerRunner Backend"]
+    end
+
+    subgraph ProcessRunnerSandbox ["ProcessRunner Sandbox"]
+        D --> D1["Tạo Environment Sandbox (loại bỏ token/secrets nhạy cảm)"]
+        D1 --> D2["Khởi chạy tiến trình con với Timeout (default: 30s)"]
+        D2 --> D3{"Kiểm tra kết thúc hoặc Treo"}
+        D3 -->|"Timeout hoặc Hủy"| D4["tree-kill: Dọn dẹp sạch toàn bộ cây tiến trình"]
+        D3 -->|"Hoàn tất bình thường"| D5["Thu thập stdout, stderr, exitCode"]
+    end
+
+    subgraph ContainerRunnerSandbox ["ContainerRunner Sandbox (Docker)"]
+        E --> E1["Mount thư mục dự án với quyền Read-Only hoặc Isolated Volume"]
+        E1 --> E2["Giới hạn tài nguyên: CPU limit, RAM cap, Drop Capabilities"]
+        E2 --> E3["Thực thi test trong Docker Container"]
+        E3 --> E4["Hủy Container ngay sau khi hoàn tất"]
+    end
+
+    D4 --> F["Chuẩn hóa TestResult & TestCase[]"]
+    D5 --> F
+    E4 --> F
+    F --> G["Phân loại trạng thái: passed | failed | no_tests | timed_out | error"]
+```
+
+---
+
+## 3. Luồng bảo vệ đa tầng (Multi-layered Security Pipeline)
+
+Mọi thao tác đọc mã nguồn, phân tích cú pháp, tương tác API và ghi bản vá đều đi qua 6 chốt chặn bảo mật nghiêm ngặt:
+
+```mermaid
+flowchart LR
+    In["Mã nguồn Dự án"] --> S1["1. File Scanner Guard"]
+    S1 -->|"Bỏ symlink ngoài root, tệp nhị phân, .env"| S2["2. Secret Scrubber"]
+    S2 -->|"Che giấu token, API key (sk-..., AKIA...)"| S3["3. AST Parser & Rules Engine"]
+    S3 -->|"Xây dựng Call Graph & 4 nhóm lỗi tĩnh"| S4["4. Server Session & Token Guard"]
+    S4 -->|"Localhost only, CSRF token, không cấp cookie bừa bãi"| S5["5. Patch Verification & Safety"]
+    S5 -->|"confineToRoot, bắt buộc confirm:true, chống patch rỗng"| S6["6. Unified Runner Sandbox"]
+    S6 --> Out["Báo cáo kết quả & Mã nguồn an toàn"]
+```
+
+### Chi tiết các tầng bảo vệ:
+1. **Tầng 1 - Scanner Guard:** Tuân thủ `.gitignore`, giới hạn kích thước tệp < 500KB, bỏ qua toàn bộ symbolic link trỏ ra ngoài project root nhằm ngăn chặn Symlink Loop và rò rỉ mã nguồn.
+2. **Tầng 2 - Secret Scrubber (`scrubSecrets`):** Quét phát hiện và thay thế các chuỗi bí mật (OpenAI keys, AWS credentials, JWT tokens, private keys) bằng chuỗi đại diện `[REDACTED_SECRET]` trước khi dữ liệu được chuyển đến mô hình AI hoặc ghi log.
+3. **Tầng 3 - AST Parser & Rules Engine:** Phân tích cú pháp dựa trên TypeScript Compiler API chính thống, trích xuất cấu trúc ngữ cảnh chính xác, không dùng regex phỏng đoán thiếu an toàn.
+4. **Tầng 4 - Server Session Isolation:** Web server chỉ lắng nghe trên `127.0.0.1`, yêu cầu session token xác thực, ngăn chặn truy cập trái phép từ các tiến trình hoặc website khác trên máy người dùng.
+5. **Tầng 5 - Patch Safety & Root Confinement:**
+   - Hàm `confineToRoot` chuẩn hóa đường dẫn, chặn đứng tuyệt đối lỗ hổng Path Traversal (`../`) và Sibling Folder Injection.
+   - Bắt buộc tham số `confirm: true` khi áp dụng bản vá; loại bỏ tình trạng biến câu gợi ý text thành code patch.
+6. **Tầng 6 - Unified Runner Sandbox:** Thực thi kiểm chứng an toàn với timeout và `tree-kill`, không lưu trữ trạng thái nguy hiểm.
+
+---
+
+## 4. Luồng xử lý chi tiết (Pipeline)
 
 ### Bước 1: Quét tệp & Phân tích cú pháp (Scanner & AST Graph)
 * Bộ quét duyệt qua cây thư mục dự án, tự động loại trừ `.git`, `node_modules`, `dist`, các tệp nhị phân và tệp vượt quá 500KB.
@@ -70,7 +136,7 @@ VIECODIE được thiết kế theo mô hình **Một bộ máy lõi dùng chung
 
 ---
 
-## 3. Ranh giới tin cậy & Bảo mật dữ liệu (Trust Boundary)
+## 5. Ranh giới tin cậy & Bảo mật dữ liệu (Trust Boundary)
 1. **Chỉ đọc theo mặc định (Read-only by default):** Quá trình phân tích mã không bao giờ tự ý thay đổi file hoặc ghi đè mã nguồn.
 2. **Minh bạch luồng dữ liệu:**
    * Khi dùng **Ollama (Offline)**: Mã nguồn không bao giờ rời khỏi máy tính cá nhân.

@@ -55,6 +55,7 @@ export interface TestCase {
   status: 'passed' | 'failed' | 'skipped'
   durationMs?: number
   failureMessage?: string
+  errorMessage?: string
 }
 
 export interface TestResult {

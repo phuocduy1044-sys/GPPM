@@ -1,0 +1,249 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "viecodie-benchmark-ground-truth",
+  "version": "1.0.0",
+  "generatedAt": "2026-10-27T19:57:00Z",
+  "targetEngine": "viecodie Review Engine",
+  "evaluationMetrics": {
+    "totalCases": 20,
+    "vulnerableCases": 10,
+    "cleanCases": 10,
+    "distribution": {
+      "security": 10,
+      "bug": 8,
+      "maintainability": 2
+    },
+    "expectedMetrics": {
+      "truePositives": 10,
+      "falsePositives": 0,
+      "trueNegatives": 10,
+      "falseNegatives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1Score": 1.0,
+      "falsePositiveRate": 0.0
+    }
+  },
+  "cases": [
+    {
+      "id": "BM-01",
+      "file": "benchmark/cases/sql_injection.js",
+      "function": "getUserUnsafe",
+      "line": 9,
+      "ruleId": "SEC_SQL_INJECTION",
+      "category": "security",
+      "is_vulnerability": true,
+      "expectedSeverity": "critical",
+      "description": "SQL Injection qua nối chuỗi trực tiếp từ user input"
+    },
+    {
+      "id": "BM-02",
+      "file": "benchmark/cases/sql_injection.js",
+      "function": "searchOrdersUnsafe",
+      "line": 15,
+      "ruleId": "SEC_SQL_INJECTION",
+      "category": "security",
+      "is_vulnerability": true,
+      "expectedSeverity": "critical",
+      "description": "SQL Injection qua template string interpolation"
+    },
+    {
+      "id": "BM-03",
+      "file": "benchmark/cases/sql_injection.js",
+      "function": "getUserSafe",
+      "line": 20,
+      "ruleId": null,
+      "category": "security",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Truy vấn an toàn sử dụng Parameterized Query ($1)"
+    },
+    {
+      "id": "BM-04",
+      "file": "benchmark/cases/sql_injection.js",
+      "function": "findUserByEmailOrm",
+      "line": 26,
+      "ruleId": null,
+      "category": "security",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Truy vấn an toàn sử dụng ORM parameter binding"
+    },
+    {
+      "id": "BM-05",
+      "file": "benchmark/cases/null_dereference.js",
+      "function": "getUserPassword",
+      "line": 9,
+      "ruleId": "BUG_POTENTIAL_NULL_DEREFERENCE",
+      "category": "bug",
+      "is_vulnerability": true,
+      "expectedSeverity": "high",
+      "description": "Truy cập thuộc tính lồng nhau không kiểm tra null/undefined"
+    },
+    {
+      "id": "BM-06",
+      "file": "benchmark/cases/null_dereference.js",
+      "function": "getFirstCustomerCity",
+      "line": 15,
+      "ruleId": "BUG_POTENTIAL_NULL_DEREFERENCE",
+      "category": "bug",
+      "is_vulnerability": true,
+      "expectedSeverity": "high",
+      "description": "Truy cập phần tử mảng có thể rỗng mà không kiểm tra độ dài"
+    },
+    {
+      "id": "BM-07",
+      "file": "benchmark/cases/null_dereference.js",
+      "function": "getUserCitySafe",
+      "line": 20,
+      "ruleId": null,
+      "category": "bug",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Truy cập an toàn với Optional Chaining (?.) và nullish coalescing (??)"
+    },
+    {
+      "id": "BM-08",
+      "file": "benchmark/cases/null_dereference.js",
+      "function": "validateRecordGuard",
+      "line": 25,
+      "ruleId": null,
+      "category": "bug",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Truy cập an toàn thông qua Guard Clauses kiểm tra kiểu dữ liệu"
+    },
+    {
+      "id": "BM-09",
+      "file": "benchmark/cases/hardcoded_secrets.js",
+      "function": "initOpenAIClient",
+      "line": 8,
+      "ruleId": "SEC_HARDCODED_SECRET",
+      "category": "security",
+      "is_vulnerability": true,
+      "expectedSeverity": "critical",
+      "description": "Lộ API Key OpenAI hardcoded trực tiếp trong mã nguồn"
+    },
+    {
+      "id": "BM-10",
+      "file": "benchmark/cases/hardcoded_secrets.js",
+      "function": "getAwsCredentials",
+      "line": 14,
+      "ruleId": "SEC_HARDCODED_SECRET",
+      "category": "security",
+      "is_vulnerability": true,
+      "expectedSeverity": "critical",
+      "description": "Lộ AWS Access Key ID trong hàm xác thực"
+    },
+    {
+      "id": "BM-11",
+      "file": "benchmark/cases/hardcoded_secrets.js",
+      "function": "getVaultSecret",
+      "line": 20,
+      "ruleId": null,
+      "category": "security",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Truy xuất bí mật an toàn qua biến môi trường process.env"
+    },
+    {
+      "id": "BM-12",
+      "file": "benchmark/cases/loose_equality.js",
+      "function": "checkAdminRole",
+      "line": 8,
+      "ruleId": "BUG_LOOSE_EQUALITY",
+      "category": "bug",
+      "is_vulnerability": true,
+      "expectedSeverity": "medium",
+      "description": "So sánh lỏng == dẫn đến ép kiểu ngoài dự kiến (type coercion)"
+    },
+    {
+      "id": "BM-13",
+      "file": "benchmark/cases/loose_equality.js",
+      "function": "isSessionActive",
+      "line": 16,
+      "ruleId": "BUG_LOOSE_EQUALITY",
+      "category": "bug",
+      "is_vulnerability": true,
+      "expectedSeverity": "medium",
+      "description": "So sánh bất đẳng lỏng != dễ phát sinh lỗi logic"
+    },
+    {
+      "id": "BM-14",
+      "file": "benchmark/cases/loose_equality.js",
+      "function": "verifyUserStatus",
+      "line": 24,
+      "ruleId": null,
+      "category": "maintainability",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "So sánh nghiêm ngặt === loại bỏ rủi ro ép kiểu ngầm định"
+    },
+    {
+      "id": "BM-15",
+      "file": "benchmark/cases/redos_prototype.js",
+      "function": "mergeUserProfile",
+      "line": 10,
+      "ruleId": "SEC_PROTOTYPE_POLLUTION",
+      "category": "security",
+      "is_vulnerability": true,
+      "expectedSeverity": "high",
+      "description": "Object.assign với đối tượng JSON chưa sanitize gây Prototype Pollution"
+    },
+    {
+      "id": "BM-16",
+      "file": "benchmark/cases/redos_prototype.js",
+      "function": "matchNestedTags",
+      "line": 16,
+      "ruleId": "SEC_REDOS",
+      "category": "security",
+      "is_vulnerability": true,
+      "expectedSeverity": "medium",
+      "description": "Biểu thức chính quy lồng lặp gây Catastrophic Backtracking (ReDoS)"
+    },
+    {
+      "id": "BM-17",
+      "file": "benchmark/cases/redos_prototype.js",
+      "function": "validateUsernameBounded",
+      "line": 23,
+      "ruleId": null,
+      "category": "security",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Biểu thức chính quy an toàn với độ dài giới hạn và tập ký tự xác định"
+    },
+    {
+      "id": "BM-18",
+      "file": "benchmark/cases/clean_samples.js",
+      "function": "calculateMovingAverage",
+      "line": 8,
+      "ruleId": null,
+      "category": "bug",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Hàm tính toán số học chuẩn mẫu, kiểm tra kiểu dữ liệu và cận mảng"
+    },
+    {
+      "id": "BM-19",
+      "file": "benchmark/cases/clean_samples.js",
+      "function": "formatCurrencyVND",
+      "line": 42,
+      "ruleId": null,
+      "category": "bug",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Hàm định dạng tiền tệ an toàn sử dụng Intl API chuẩn"
+    },
+    {
+      "id": "BM-20",
+      "file": "benchmark/cases/clean_samples.js",
+      "function": "sanitizeAndNormalizeEmail",
+      "line": 54,
+      "ruleId": null,
+      "category": "security",
+      "is_vulnerability": false,
+      "expectedSeverity": null,
+      "description": "Hàm chuẩn hóa và validate email với giới hạn độ dài RFC 5321"
+    }
+  ]
+}

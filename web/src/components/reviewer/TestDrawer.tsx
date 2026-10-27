@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { TestResult } from '../../lib/reviewTypes'
 import {
   IconChevronDown,
   IconChevronUp,
@@ -9,13 +10,11 @@ import {
   IconCheck,
   IconX,
   IconMinus,
-  IconListCheck,
 } from '@tabler/icons-react'
-import type { TestResult } from '@/lib/reviewTypes'
 
 interface TestDrawerProps {
   testResult?: TestResult
-  onRunTest?: () => void
+  onRunTest: () => Promise<void>
 }
 
 export function TestDrawer({ testResult, onRunTest }: TestDrawerProps) {
@@ -26,7 +25,7 @@ export function TestDrawer({ testResult, onRunTest }: TestDrawerProps) {
   const handleRun = async () => {
     setRunning(true)
     try {
-      await onRunTest?.()
+      await onRunTest()
     } finally {
       setRunning(false)
     }
@@ -34,12 +33,13 @@ export function TestDrawer({ testResult, onRunTest }: TestDrawerProps) {
 
   if (!testResult) return null
 
-  const isFailed = testResult.status === 'failed' || (testResult.exitCode != null && testResult.exitCode !== 0)
-  const isPassed = testResult.status === 'passed' && (testResult.exitCode == null || testResult.exitCode === 0)
   const isRunning = running || testResult.status === 'running'
-  const isNoTests = testResult.status === 'no_tests'
+  const isNoTests = testResult.status === 'no_tests' || (testResult.totalTests === 0 && (!testResult.tests || testResult.tests.length === 0))
+  const isPassed = !isRunning && !isNoTests && (testResult.status === 'passed' || (testResult.exitCode === 0 && (testResult.failedTests ?? 0) === 0))
+  const isFailed = !isRunning && !isNoTests && !isPassed
 
   const testCases = testResult.tests || []
+  const hasSubtests = testCases.length > 0
 
   return (
     <div className="border-t border-border/50 bg-[#09101d] text-foreground font-mono transition-all">
@@ -48,29 +48,27 @@ export function TestDrawer({ testResult, onRunTest }: TestDrawerProps) {
         <div className="flex items-center gap-2.5">
           <IconTerminal2 className="size-4 text-primary" />
           <span className="font-bold text-foreground">Test Runner Sandbox</span>
+
+          {/* Trạng thái trực quan: ĐẠT (xanh), TRƯỢT (đỏ), KHÔNG CÓ TEST (xám), ĐANG CHẠY (vàng) */}
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+            className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase transition-colors ${
               isRunning
-                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40 animate-pulse'
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse'
                 : isPassed
                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                 : isNoTests
-                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                ? 'bg-slate-500/20 text-slate-400 border border-slate-500/40'
                 : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
             }`}
           >
-            {isRunning
-              ? 'ĐANG CHẠY'
-              : isPassed
-              ? 'ĐẠT'
-              : isNoTests
-              ? 'KHÔNG CÓ TEST'
-              : 'TRƯỢT'}
+            {isRunning ? 'ĐANG CHẠY' : isPassed ? 'ĐẠT' : isNoTests ? 'KHÔNG CÓ TEST' : 'TRƯỢT'}
           </span>
+
           <span className="text-[11px] text-muted-foreground">
             {testResult.totalTests != null
               ? `${testResult.totalTests} test · ${testResult.failedTests ?? 0} lỗi · ${testResult.durationMs ?? 0} ms`
               : `${testResult.durationMs ?? 0} ms · exit ${testResult.exitCode ?? '?'}`}
+            {testResult.score ? ` · kiểm định: ${testResult.score}` : ''}
           </span>
         </div>
 
@@ -83,14 +81,14 @@ export function TestDrawer({ testResult, onRunTest }: TestDrawerProps) {
                 setTab('cases')
                 if (collapsed) setCollapsed(false)
               }}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
-                tab === 'cases' && !collapsed
-                  ? 'bg-primary/20 text-primary font-semibold'
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded transition-colors ${
+                tab === 'cases'
+                  ? 'bg-primary/20 text-primary font-bold'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <IconListCheck className="size-3" />
-              <span>Kiểm thử {testCases.length > 0 ? `(${testCases.length})` : ''}</span>
+              <IconTestPipe className="size-3.5" />
+              <span>Kiểm thử ({testCases.length})</span>
             </button>
             <button
               type="button"
@@ -98,113 +96,137 @@ export function TestDrawer({ testResult, onRunTest }: TestDrawerProps) {
                 setTab('logs')
                 if (collapsed) setCollapsed(false)
               }}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
-                tab === 'logs' && !collapsed
-                  ? 'bg-primary/20 text-primary font-semibold'
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded transition-colors ${
+                tab === 'logs'
+                  ? 'bg-primary/20 text-primary font-bold'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <IconTerminal2 className="size-3" />
+              <IconTerminal2 className="size-3.5" />
               <span>Nhật ký Console</span>
             </button>
           </div>
 
+          {/* Action: Re-run tests */}
           <button
             type="button"
-            disabled={isRunning}
             onClick={handleRun}
-            className="flex items-center gap-1.5 rounded-md border border-lime-500/50 bg-lime-500/10 px-2.5 py-1 text-xs font-semibold text-lime-400 hover:bg-lime-500/20 disabled:opacity-50"
+            disabled={isRunning}
+            className="flex items-center gap-1.5 rounded bg-primary/15 px-3 py-1 font-semibold text-primary border border-primary/30 transition-all hover:bg-primary/25 disabled:opacity-50"
           >
             {isRunning ? (
               <IconLoader2 className="size-3.5 animate-spin" />
             ) : (
               <IconRotateClockwise className="size-3.5" />
             )}
-            <span>{isRunning ? 'Đang kiểm tra...' : 'Chạy lại kiểm thử'}</span>
+            <span>Chạy lại kiểm thử</span>
           </button>
 
+          {/* Toggle Collapse */}
           <button
             type="button"
-            onClick={() => setCollapsed((c) => !c)}
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => setCollapsed(!collapsed)}
+            className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
-            {collapsed ? <IconChevronUp className="size-4" /> : <IconChevronDown className="size-4" />}
+            {collapsed ? (
+              <IconChevronUp className="size-4" />
+            ) : (
+              <IconChevronDown className="size-4" />
+            )}
           </button>
         </div>
       </div>
 
-      {/* Drawer Body */}
+      {/* Drawer Content */}
       {!collapsed && (
-        <div className="max-h-60 overflow-auto bg-[#05080f] p-3 text-xs leading-relaxed text-muted-foreground font-mono">
+        <div className="max-h-72 overflow-auto bg-[#05080f] p-3 text-xs leading-relaxed font-mono">
           {tab === 'cases' ? (
-            testCases.length > 0 ? (
-              <div className="space-y-1.5">
+            hasSubtests ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground border-b border-border/20 pb-1.5 mb-1">
+                  <span className="font-semibold text-foreground/80">
+                    Danh sách các ca kiểm thử tự động ({testCases.length}):
+                  </span>
+                  <span className="text-[10px]">
+                    Lệnh: <code className="text-cyan-400">{testResult.command}</code>
+                  </span>
+                </div>
                 {testCases.map((tc, idx) => {
-                  const pass = tc.status === 'passed'
-                  const fail = tc.status === 'failed'
+                  const tcPassed = tc.status === 'passed'
+                  const tcSkipped = tc.status === 'skipped'
+                  const errMsg = tc.failureMessage || tc.errorMessage
                   return (
                     <div
                       key={idx}
-                      className={`flex flex-col gap-1 rounded border px-3 py-1.5 text-[11px] ${
-                        pass
+                      className={`flex flex-col rounded border px-3 py-2 text-[11px] transition-colors ${
+                        tcPassed
                           ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300'
-                          : fail
-                          ? 'border-rose-500/20 bg-rose-500/5 text-rose-300'
-                          : 'border-border/20 bg-accent/10 text-muted-foreground'
+                          : tcSkipped
+                          ? 'border-slate-500/20 bg-slate-500/5 text-slate-400'
+                          : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          {pass ? (
-                            <IconCheck className="size-3.5 text-emerald-400 shrink-0" />
-                          ) : fail ? (
-                            <IconX className="size-3.5 text-rose-400 shrink-0" />
+                          {tcPassed ? (
+                            <IconCheck className="size-3.5 text-emerald-400" />
+                          ) : tcSkipped ? (
+                            <IconMinus className="size-3.5 text-slate-400" />
                           ) : (
-                            <IconMinus className="size-3.5 text-zinc-400 shrink-0" />
+                            <IconX className="size-3.5 text-rose-400" />
                           )}
-                          <span className="font-semibold text-foreground/90">{tc.name}</span>
+                          <span className="font-semibold">{tc.name}</span>
                         </div>
-                        <span className="text-[10px] text-muted-foreground">
-                          {tc.durationMs != null ? `${tc.durationMs} ms` : ''}
-                        </span>
+                        <div className="flex items-center gap-2 text-[10px]">
+                          {tc.durationMs != null && (
+                            <span className="text-muted-foreground">{tc.durationMs} ms</span>
+                          )}
+                          <span
+                            className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase ${
+                              tcPassed
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : tcSkipped
+                                ? 'bg-slate-500/20 text-slate-400'
+                                : 'bg-rose-500/20 text-rose-400'
+                            }`}
+                          >
+                            {tcPassed ? 'ĐẠT' : tcSkipped ? 'BỎ QUA' : 'TRƯỢT'}
+                          </span>
+                        </div>
                       </div>
-                      {tc.failureMessage && (
-                        <pre className="text-[10px] text-rose-400/90 whitespace-pre-wrap pl-5 border-l-2 border-rose-500/30">
-                          {tc.failureMessage}
-                        </pre>
+                      {errMsg && (
+                        <div className="mt-1.5 rounded bg-black/40 p-1.5 text-[10px] text-rose-300 whitespace-pre-wrap border border-rose-500/20 font-mono">
+                          {errMsg}
+                        </div>
                       )}
                     </div>
                   )
                 })}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center p-4 text-center text-muted-foreground">
-                <IconTestPipe className="size-6 text-muted-foreground/40 mb-2" />
-                <p className="text-xs font-semibold text-foreground/80">
-                  {isNoTests
-                    ? 'Dự án chưa có kịch bản kiểm thử tự động.'
-                    : 'Đã hoàn tất kiểm thử tổng thể.'}
-                </p>
-                <p className="text-[11px] mt-1 text-muted-foreground">
-                  Lệnh thực thi: <span className="text-cyan-400">{testResult.command}</span> · Mã thoát:{' '}
-                  <span className={isPassed ? 'text-emerald-400' : 'text-rose-400'}>
+              <div className="p-4 text-center text-muted-foreground">
+                <p>Không có ca kiểm thử con chi tiết trong kết quả thực thi.</p>
+                <p className="mt-1 text-[11px] text-muted-foreground/70">
+                  Lệnh: <span className="text-cyan-400">{testResult.command}</span> · Mã thoát:{' '}
+                  <span className={isPassed ? 'text-emerald-400' : isNoTests ? 'text-slate-400' : 'text-rose-400'}>
                     {testResult.exitCode ?? 0}
                   </span>
                 </p>
               </div>
             )
           ) : (
+            /* Terminal Console Log Output */
             <div>
               <div className="flex items-center justify-between border-b border-border/20 pb-1 mb-2 text-[11px]">
                 <span className="text-cyan-400">
                   &gt;_ vie-review@sandbox:~$ {testResult.command}
                 </span>
-                <span className={isPassed ? 'text-emerald-400' : 'text-rose-400'}>
-                  exit {testResult.exitCode} · {testResult.durationMs} ms
+                <span className={isPassed ? 'text-emerald-400' : isNoTests ? 'text-slate-400' : 'text-rose-400'}>
+                  exit {testResult.exitCode ?? 0} · {testResult.durationMs ?? 0} ms
                 </span>
               </div>
               <pre className="whitespace-pre-wrap font-mono text-[11px] text-foreground/85">
-                {testResult.logOutput}
+                {testResult.logOutput || '(Không có log output)'}
               </pre>
             </div>
           )}

@@ -4,7 +4,8 @@
   "description": "Local AI coding agent for your terminal — an open-source, offline alternative to Claude Code, Cursor, and GitHub Copilot, powered by Ollama. Private by default, free forever.",
   "type": "module",
   "bin": {
-    "viecodie": "dist/cli.js"
+    "viecodie": "dist/cli.js",
+    "viecodie-agent": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -20,6 +21,8 @@
     "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "benchmark": "tsx scripts/run-benchmark.ts",
+    "smoke-test": "tsx scripts/smoke-test.ts",
     "dev": "tsx watch src/cli.tsx",
     "build": "tsup && vite build --config web/vite.config.ts",
     "dev:web": "vite --config web/vite.config.ts",

@@ -1,87 +1,154 @@
-# HƯỚNG DẪN CÀI ĐẶT & CẤU HÌNH (INSTALLATION GUIDE)
-**Dự án:** VIECODIE  
-**Hệ điều hành hỗ trợ:** Windows 10/11, macOS, Linux (Ubuntu/Debian)
+# HƯỚNG DẪN CÀI ĐẶT & CẤU HÌNH HỆ THỐNG (INSTALLATION GUIDE)
+**Dự án:** VIECODIE — AI Code Reviewer by Graph  
+**Phiên bản:** v3.13.1  
+**Hệ điều hành hỗ trợ:** Windows 10/11, Linux (Ubuntu, Debian, Fedora, Arch), macOS (Apple Silicon M1/M2/M3 & Intel)
 
 ---
 
-## 1. Cài đặt tự động trên Windows (Khuyên dùng)
+## 1. Yêu cầu hệ thống tiên quyết (System Requirements)
 
-Cách nhanh nhất và đơn giản nhất trên hệ điều hành Windows là sử dụng trình cài đặt tự động [**`INSTALL.BAT`**](../INSTALL.BAT):
+| Thành phần | Yêu cầu tối thiểu | Khuyến nghị cho hội thi |
+| :--- | :--- | :--- |
+| **Hệ điều hành** | Windows 10+, Ubuntu 20.04+, macOS 12+ | Windows 11 / Ubuntu 22.04 LTS / macOS 14 |
+| **Node.js** | `>= 18.0.0` | Node.js `v20.x` hoặc `v22.x` (LTS) |
+| **npm** | `>= 9.0.0` | npm `v10.x` |
+| **Bộ nhớ RAM** | 4 GB (với Cloud API) | 16 GB (nếu chạy mô hình Ollama 7B cục bộ) |
+| **Ổ đĩa trống** | 500 MB cho mã nguồn & build | 10 GB nếu lưu trữ weights mô hình Ollama |
 
-1. Tải hoặc sao chép thư mục mã nguồn về máy.
-2. Nhấp đúp chuột vào file **`INSTALL.BAT`** (hoặc mở Command Prompt chạy `INSTALL.BAT`).
-3. Trình cài đặt sẽ tự động:
-   - Kiểm tra và cài đặt Node.js LTS (nếu máy chưa có).
-   - Tự động biên dịch mã nguồn và đóng gói lệnh `viecodie` toàn cục vào tài khoản Windows.
-   - Cung cấp Menu cấu hình AI trực quan với 4 lựa chọn:
-     * `[1] Chế độ Offline`: Tự cài Ollama và tải model `qwen2.5-coder:7b` hoặc `deepseek-r1:7b`.
-     * `[2] Chế độ Online`: Thiết lập DeepSeek Cloud API (siêu nhẹ, không cần tải Ollama).
-     * `[3] Chế độ Song song (Dual Mode)`: Thiết lập cả hai để chuyển đổi linh hoạt.
-     * `[4] Bỏ qua`: Giữ nguyên cấu hình cũ.
-
----
-
-## 2. Cài đặt thủ công từ mã nguồn (Mọi hệ điều hành)
-
-### Bước 1: Yêu cầu tiên quyết
-- **Node.js:** Phiên bản `>= 22.0.0`
-- **npm:** Phiên bản `>= 10.0.0`
-- **Git**
-
-### Bước 2: Clone kho mã nguồn và cài đặt dependencies
+Kiểm tra phiên bản môi trường hiện tại:
 ```bash
+node -v   # Yêu cầu >= v18.0.0
+npm -v    # Yêu cầu >= 9.0.0
+git --version
+```
+
+---
+
+## 2. Các phương thức cài đặt (Installation Methods)
+
+### Phương thức 1: Cài đặt toàn cục qua npm Registry (Khuyên dùng)
+Gói phân phối chính thức đã được xuất bản và xác thực trên npm:
+```bash
+# Cài đặt toàn cục
+npm install -g @demoapplication/viecodie
+
+# Cập nhật phiên bản mới nhất
+npm install -g @demoapplication/viecodie@latest
+
+# Kiểm tra cài đặt thành công
+viecodie --version
+```
+
+### Phương thức 2: Cài đặt tự động trên Windows (1-Click Installer)
+Dành cho người dùng Windows, dự án cung cấp script tự động hóa toàn bộ quy trình:
+1. Clone repository:
+   ```cmd
+   git clone https://github.com/phuocduy1044-sys/GPPM.git
+   cd GPPM
+   ```
+2. Nhấp đúp chuột vào tệp [**`INSTALL.BAT`**](../INSTALL.BAT) (hoặc chạy trong PowerShell):
+   ```cmd
+   .\INSTALL.BAT
+   ```
+3. Script sẽ tự động:
+   - Kiểm tra Node.js và Git.
+   - Chạy `npm ci` cài đặt sạch các dependencies.
+   - Biên dịch CLI (`tsup`) và Web UI (`vite`).
+   - Liên kết lệnh `viecodie` toàn cục vào hệ điều hành.
+
+### Phương thức 3: Cài đặt từ mã nguồn sạch (Linux / macOS / Windows)
+```bash
+# 1. Clone repository
 git clone https://github.com/phuocduy1044-sys/GPPM.git
 cd GPPM
+
+# 2. Cài đặt các thư viện phụ thuộc từ package-lock.json
 npm ci
-```
 
-### Bước 3: Biên dịch mã nguồn
-```bash
+# 3. Biên dịch sạch mã nguồn
 npm run build
-```
 
-### Bước 4: Liên kết lệnh toàn cục (Global Link)
-```bash
+# 4. Liên kết lệnh toàn cục vào hệ thống
 npm link
 ```
-Sau bước này, lệnh `viecodie` đã sẵn sàng sử dụng ở bất kỳ thư mục nào trên terminal của bạn.
 
 ---
 
-## 3. Cấu hình Nhà cung cấp AI (Provider Configuration)
+## 3. Cấu hình AI Provider (Online Cloud hoặc Offline Local)
 
-### Lựa chọn A: Sử dụng DeepSeek Online API (Khuyên dùng)
-1. Đăng ký tài khoản và tạo API Key tại [platform.deepseek.com](https://platform.deepseek.com).
-2. Thiết lập biến môi trường:
-   - **Trên Windows (PowerShell):**
-     ```powershell
-     [System.Environment]::SetEnvironmentVariable('DEEPSEEK_API_KEY', 'sk-your-key-here', 'User')
-     ```
-   - **Trên Linux/macOS:**
-     ```bash
-     export DEEPSEEK_API_KEY="sk-your-key-here"
-     ```
-3. Khởi động ứng dụng, VIECODIE sẽ tự động nhận diện và sử dụng mô hình `deepseek-chat` / `deepseek-reasoner`.
+Hệ thống hỗ trợ 3 chế độ AI linh hoạt, chuyển đổi dễ dàng thông qua lệnh `/models`:
 
-### Lựa chọn B: Sử dụng Ollama Local (Chạy hoàn toàn Offline)
-1. Tải và cài đặt Ollama từ [ollama.com](https://ollama.com).
-2. Tải mô hình lập trình cục bộ:
+### Lựa chọn A: DeepSeek Cloud API (Khuyên dùng cho chất lượng cao nhất)
+Đạt hiệu năng suy luận sâu cao nhất (DeepSeek-V3 / DeepSeek-R1), không ngốn tài nguyên máy:
+```bash
+# Trên Linux / macOS:
+export DEEPSEEK_API_KEY="sk-your-api-key-here"
+
+# Trên Windows (PowerShell):
+$env:DEEPSEEK_API_KEY="sk-your-api-key-here"
+```
+
+### Lựa chọn B: Ollama Local (Offline - Bảo mật tuyệt đối mã nguồn)
+Chạy hoàn toàn trong mạng nội bộ không cần Internet, mã nguồn không rời máy:
+1. Cài đặt Ollama từ [ollama.ai](https://ollama.ai).
+2. Tải mô hình code chuyên dụng:
    ```bash
    ollama pull qwen2.5-coder:7b
    # hoặc
    ollama pull deepseek-r1:7b
    ```
-3. Đảm bảo Ollama đang chạy tại `http://localhost:11434`.
+3. Khởi động Ollama server:
+   ```bash
+   ollama serve
+   ```
+4. VIECODIE tự động kết nối endpoint mặc định `http://localhost:11434`.
+
+### Lựa chọn C: OpenAI API (Tùy chọn)
+```bash
+export OPENAI_API_KEY="sk-proj-your-api-key-here"
+```
 
 ---
 
-## 4. Kiểm tra cài đặt (Health Check)
-Chạy lệnh kiểm tra môi trường:
+## 4. Hướng dẫn sử dụng 2 luồng cốt lõi
+
+### Luồng 1: Dòng lệnh CLI tương tác & Headless
 ```bash
-viecodie --version
-viecodie --help
+# 1. Quét và phân tích nhanh bằng Static Rules (không cần AI/Internet)
+viecodie review . --mode rules
+
+# 2. Xuất báo cáo cấu trúc JSON phục vụ tích hợp CI/CD tự động
+viecodie review . --output-format json
+
+# 3. Chạy bộ kiểm thử tự động xác minh mã sau khi vá
+viecodie verify . --check "npm test"
+
+# 4. Chạy bộ dữ liệu kiểm chứng Benchmark & Ground-Truth
+npm run benchmark
 ```
-Mở giao diện Web:
+
+### Luồng 2: Giao diện trực quan Web Graph Review
 ```bash
+# Mở Web UI Code Reviewer by Graph
+viecodie graph
+# hoặc
 viecodie web
 ```
+Trình duyệt sẽ tự động mở tại `http://localhost:5173`:
+1. **Đồ thị SVG Call Graph:** Quan sát quan hệ hàm gọi (Caller) và hàm được gọi (Callee) với hiệu ứng highlight trực quan, làm mờ các node không liên quan.
+2. **Code Viewer:** Xem dòng mã nghi vấn được đánh dấu trực quan trên gutter.
+3. **Bản vá Unified Diff:** Xem trước bản sửa lỗi và nhấn **Áp dụng bản sửa (Apply Patch)**.
+4. **Test Drawer:** Quan sát danh sách từng ca kiểm thử con và kết quả chạy test tự động.
+
+---
+
+## 5. Khắc phục sự cố thường gặp (Troubleshooting)
+
+### Sự cố 1: Lỗi "Command not found: viecodie"
+- **Khắc phục:** Thêm đường dẫn npm global bin vào biến môi trường `PATH`:
+  - Windows: `%APPDATA%\npm`
+  - Linux/macOS: `$(npm config get prefix)/bin`
+  - Hoặc khởi chạy trực tiếp qua `npx @demoapplication/viecodie`.
+
+### Sự cố 2: Cổng 5173 bị xung đột
+- Web server tự động phát hiện xung đột và chuyển sang cổng kế tiếp (`5174`, `5175`, ...) kèm đường dẫn mở trực tiếp trên terminal.

@@ -53,21 +53,23 @@ export function GraphReview({
   const [filterIssueOnly, setFilterIssueOnly] = useState(false)
   const [showLegend, setShowLegend] = useState(true)
   const [showNodeDetails, setShowNodeDetails] = useState(true)
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId)
+  const activeNodeId = hoveredNodeId || selectedNodeId
+  const activeNode = nodes.find((n) => n.id === activeNodeId)
   const callerNames = new Set(
-    (selectedNode?.calledBy || []).map((c: any) => (typeof c === 'string' ? c : c))
+    (activeNode?.calledBy || []).map((c: any) => (typeof c === 'string' ? c : c))
   )
   const calleeNames = new Set(
-    (selectedNode?.calls || []).map((c: any) => (typeof c === 'string' ? c : c.functionName))
+    (activeNode?.calls || []).map((c: any) => (typeof c === 'string' ? c : c.functionName))
   )
 
   const isCaller = (fnName: string) => callerNames.has(fnName)
   const isCallee = (fnName: string) => calleeNames.has(fnName)
   const isRelated = (n: any) => {
-    if (!selectedNodeId) return true
-    if (n.id === selectedNodeId) return true
+    if (!activeNodeId) return true
+    if (n.id === activeNodeId) return true
     return isCaller(n.functionName) || isCallee(n.functionName)
   }
 
@@ -274,10 +276,10 @@ export function GraphReview({
 
         const isSameFile = src.file === tgt.file
         const isSelected =
-          edge.sourceNodeId === selectedNodeId ||
-          edge.targetNodeId === selectedNodeId ||
-          src.file === selectedNode?.file ||
-          tgt.file === selectedNode?.file
+          edge.sourceNodeId === activeNodeId ||
+          edge.targetNodeId === activeNodeId ||
+          src.file === activeNode?.file ||
+          tgt.file === activeNode?.file
 
         if (isSameFile) {
           x1 = src.x + src.width
@@ -325,7 +327,7 @@ export function GraphReview({
         }
       })
       .filter((e): e is NonNullable<typeof e> => e !== null)
-  }, [edges, nodePositions, selectedNodeId, selectedNode])
+  }, [edges, nodePositions, selectedNodeId])
 
   // Download Standalone SVG Diagram
   const handleDownloadSvg = () => {
@@ -1033,7 +1035,7 @@ export function GraphReview({
               strokeDasharray={ce.isCrossFile || ce.isHttp ? '4 3' : undefined}
               markerEnd={ce.isHttp ? 'url(#arrow-purple)' : 'url(#arrow-cyan)'}
               className="transition-all"
-              opacity={!selectedNodeId || ce.isSelected ? 0.9 : 0.2}
+              opacity={!activeNodeId || ce.isSelected ? 0.9 : 0.25}
             />
           ))}
         </svg>
