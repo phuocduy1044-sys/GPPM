@@ -867,7 +867,7 @@ export function useKeyboard(opts: KeyboardOptions) {
         } else if (trimmed === '/review' || trimmed.startsWith('/review ') || trimmed === '/Review' || trimmed.startsWith('/Review ')) {
           setNotice(null)
           import('../handlers/reviewGraphHandler.js')
-            .then(({ handleReviewCommand }) => handleReviewCommand(trimmed, process.cwd(), report, setNotice))
+            .then(({ handleReviewCommand }) => handleReviewCommand(trimmed, process.cwd(), report, setNotice, agentHistory, messages))
             .catch((err) => report(`❌ ${err instanceof Error ? err.message : String(err)}`))
         } else if (trimmed.toLowerCase() === '/graph' || trimmed.toLowerCase().startsWith('/graph ')) {
           setNotice(null)
