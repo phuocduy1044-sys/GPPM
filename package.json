@@ -22,6 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark": "tsx scripts/run-benchmark.ts",
+    "smoke-test": "tsx scripts/smoke-test.ts",
     "dev": "tsx watch src/cli.tsx",
     "build": "tsup && vite build --config web/vite.config.ts",
     "dev:web": "vite --config web/vite.config.ts",
