@@ -156,6 +156,9 @@ if (cmd === 'version' || args.includes('--version') || args.includes('-v')) {
     process.exit(2)
   }
   process.exit(await runFix(parsed.options))
+} else if (cmd === 'graph' || args.includes('graph')) {
+  const { runGraphCli } = await import('./review/cli.js')
+  process.exit(await runGraphCli(args))
 } else if (cmd === 'web' || args.includes('--web')) {
   const { runWeb } = await import('./web/run.js')
   process.exit(await runWeb(args))

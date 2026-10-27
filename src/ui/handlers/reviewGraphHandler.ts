@@ -13,7 +13,7 @@
 import { resolve, basename, relative, isAbsolute } from 'path'
 import { existsSync, statSync } from 'fs'
 import { execSync } from 'child_process'
-import { reviewProject, getCurrentReport, setCurrentReport, computeRevision } from '../../review/engine.js'
+import { reviewProject, getCurrentReport, setCurrentReport } from '../../review/engine.js'
 import { scanProject } from '../../review/scanner.js'
 import { buildAstGraph } from '../../review/ast.js'
 import { getOrStartCliWebServer, openBrowser } from '../../web/cliWebServer.js'
@@ -183,7 +183,15 @@ export function extractContextFolder(
     }
   }
 
-
+  // 3. Fallback: check previous review report if it reviewed a subfolder
+  const prevReport = getCurrentReport()
+  if (prevReport?.projectRoot) {
+    const prevRoot = resolve(prevReport.projectRoot)
+    const cwdRoot = resolve(cwd)
+    if (prevRoot !== cwdRoot && prevRoot.startsWith(cwdRoot) && existsSync(prevRoot)) {
+      return prevRoot
+    }
+  }
 
   return null
 }
@@ -286,40 +294,34 @@ export async function handleReviewCommand(
   setNotice: (text: string | null) => void,
   agentHistory?: Array<{ role: string; content?: unknown }>,
   messages?: ChatMessage[],
-  sessionId?: string,
 ): Promise<void> {
   const parsed = parseReviewInput(rawInput, cwd)
   let isFromContext = false
 
   // 1. If bare /review was called without any folder or requirement:
   if (!parsed.isExplicitProjectRoot && !parsed.targetFolder && !parsed.requirement) {
-    // Check if the current session already reviewed a folder previously
-    const prevSessionReport = getCurrentReport(sessionId)
-    if (prevSessionReport?.projectRoot && existsSync(prevSessionReport.projectRoot)) {
-      parsed.targetFolder = prevSessionReport.projectRoot
-      isFromContext = true
-    } else {
-      const contextFolder = extractContextFolder(cwd, messages, agentHistory)
-      if (!contextFolder) {
-        report([
-          '⚠ **Chưa xác định được thư mục cần phân tích.**',
-          '',
-          'Không tìm thấy đường dẫn thư mục trong lệnh và cũng không có thư mục nào được đề cập trong ngữ cảnh hội thoại gần đây.',
-          '',
-          '👉 Bạn có thể dùng lệnh theo các cách sau:',
-          '   - Thư mục kèm yêu cầu: `/review <thư-mục> <yêu-cầu>` *(ví dụ: `/review src/ kiểm tra lỗi bảo mật`)*',
-          '   - Chỉ định thư mục cụ thể: `/review <đường-dẫn-thư-mục>` *(ví dụ: `/review examples/demo-project`)*',
-          '   - Yêu cầu phân tích cụ thể: `/review <yêu-cầu>` *(ví dụ: `/review kiểm tra bảo mật SQL injection`)*',
-          '   - Phân tích toàn bộ dự án: `/review .`',
-          '',
-          '💡 *Gợi ý:* Bạn cũng có thể gửi địa chỉ folder vào khung chat trước, sau đó chỉ cần gõ `/review`.',
-        ].join('\n'))
-        return
-      }
-
-      parsed.targetFolder = contextFolder
-      isFromContext = true
+    // "còn không có thì review folder ngữ cảnh. còn không có thì in ra thông báo"
+    const contextFolder = extractContextFolder(cwd, messages, agentHistory)
+    if (!contextFolder) {
+      report([
+        '⚠ **Chưa xác định được thư mục cần phân tích.**',
+        '',
+        'Không tìm thấy đường dẫn thư mục trong lệnh và cũng không có thư mục nào được đề cập trong ngữ cảnh hội thoại gần đây.',
+        '',
+        '👉 Bạn có thể dùng lệnh theo các cách sau:',
+        '   - Thư mục kèm yêu cầu: `/review <thư-mục> <yêu-cầu>` *(ví dụ: `/review src/ kiểm tra lỗi bảo mật`)*',
+        '   - Chỉ định thư mục cụ thể: `/review <đường-dẫn-thư-mục>` *(ví dụ: `/review examples/demo-project`)*',
+        '   - Yêu cầu phân tích cụ thể: `/review <yêu-cầu>` *(ví dụ: `/review kiểm tra bảo mật SQL injection`)*',
+        '   - Phân tích toàn bộ dự án: `/review .`',
+        '',
+        '💡 *Gợi ý:* Bạn cũng có thể gửi địa chỉ folder vào khung chat trước, sau đó chỉ cần gõ `/review`.',
+      ].join('\n'))
+      return
     }
+
+    // Has context folder -> proceed to review that context folder
+    parsed.targetFolder = contextFolder
+    isFromContext = true
   }
 
   // 2. Determine target path and whether it's from context
@@ -331,18 +333,13 @@ export async function handleReviewCommand(
     targetPath = parsed.targetFolder
   } else {
     // User provided a requirement without a folder, e.g. `/review kiểm tra SQL injection`
-    const prevSessionReport = getCurrentReport(sessionId)
-    if (prevSessionReport?.projectRoot && existsSync(prevSessionReport.projectRoot)) {
-      targetPath = prevSessionReport.projectRoot
+    // Check if there is a context folder first
+    const contextFolder = extractContextFolder(cwd, messages, agentHistory)
+    if (contextFolder) {
+      targetPath = contextFolder
       isFromContext = true
     } else {
-      const contextFolder = extractContextFolder(cwd, messages, agentHistory)
-      if (contextFolder) {
-        targetPath = contextFolder
-        isFromContext = true
-      } else {
-        targetPath = cwd
-      }
+      targetPath = cwd
     }
   }
 
@@ -360,9 +357,8 @@ export async function handleReviewCommand(
       projectRoot: targetPath,
       mode: 'rules',
       userRequirement: parsed.requirement || undefined,
-      sessionId,
     })
-    setCurrentReport(rep, sessionId)
+    setCurrentReport(rep)
 
     const crit = rep.findings.filter((f) => f.severity === 'critical').length
     const high = rep.findings.filter((f) => f.severity === 'high').length
@@ -469,88 +465,66 @@ export async function handleGraphCommand(
   cwd: string,
   report: (content: string) => void,
   setNotice: (text: string | null) => void,
-  sessionId?: string,
 ): Promise<void> {
   try {
-    let rep = getCurrentReport(sessionId)
+    let rep = getCurrentReport()
 
-    // Strictly check if report exists for this session
+    // If no report exists yet, auto-run review on current directory
     if (!rep) {
-      report([
-        '⚠ **Chưa có kết quả review cho phiên làm việc hiện tại.**',
-        '',
-        'CLI là nơi làm việc chính. Hãy yêu cầu phân tích mã nguồn trước bằng lệnh:',
-        '👉 `/review <thư-mục>`',
-        '',
-        'Sau khi CLI phân tích xong, bạn chỉ cần nhập `/graph` để mở đồ thị trực quan!',
-      ].join('\n'))
-      return
+      setNotice('🔍 Đang phân tích mã nguồn và dựng đồ thị gọi hàm...')
+      rep = await reviewProject({ projectRoot: cwd, mode: 'rules' })
+      setCurrentReport(rep)
     }
 
-    // 1. Build AST graph without re-running AI if missing
+    const targetDir = rep.projectRoot ? resolve(rep.projectRoot) : resolve(cwd)
+
+    // 1. Dựng bổ sung Graph nếu report chưa có nodes/edges mà không gọi lại AI
     if (!rep.nodes || rep.nodes.length === 0) {
-      const scanDir = rep.projectRoot || cwd
+      const scanDir = targetDir
       const scope = scanProject(scanDir)
       const ast = buildAstGraph(scope.files)
       rep.nodes = ast.nodes
       rep.edges = ast.edges
       rep.unresolvedCalls = ast.unresolvedCalls
-      setCurrentReport(rep, sessionId)
+      setCurrentReport(rep)
     }
 
-    // 2. Check if source code at rep.projectRoot has changed compared to reviewed revision
+    // 2. Kiểm tra xem mã nguồn có thay đổi so với thời điểm review không
     let isOutdated = false
     try {
-      if (existsSync(rep.projectRoot)) {
-        try {
-          const curRev = execSync('git rev-parse --short HEAD', {
-            cwd: rep.projectRoot,
-            encoding: 'utf-8',
-            stdio: ['ignore', 'pipe', 'ignore'],
-          }).trim()
-          const dirty = execSync('git status --porcelain', {
-            cwd: rep.projectRoot,
-            encoding: 'utf-8',
-            stdio: ['ignore', 'pipe', 'ignore'],
-          }).trim().length > 0
-          if (curRev !== rep.revision || dirty) isOutdated = true
-        } catch {
-          // If not a git repo, compute hash of current files
-          const { files } = scanProject(rep.projectRoot)
-          const curRev = computeRevision(files)
-          if (curRev !== rep.revision) isOutdated = true
-        }
-      }
-    } catch { /* ignore */ }
+      const curRev = execSync('git rev-parse --short HEAD', {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim()
+      const dirty = execSync('git status --porcelain', {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim().length > 0
+      if (curRev !== rep.revision || dirty) isOutdated = true
+    } catch { /* not git repository */ }
 
     rep.isOutdated = isOutdated
-    setCurrentReport(rep, sessionId)
+    setCurrentReport(rep)
 
-    // 3. Start or reuse Web Server localhost
+    // 3. Khởi động hoặc tái sử dụng Web Server localhost
     setNotice('Đang khởi động giao diện Code Reviewer by Graph...')
-    const { url } = await getOrStartCliWebServer(rep.projectRoot || cwd)
-
-    const baseWithoutHash = url.split('#')[0]
-    const tokenPart = url.includes('#') ? url.slice(url.indexOf('#')) : ''
-    const sessionQuery = sessionId ? `session=${encodeURIComponent(sessionId)}` : `reviewId=${encodeURIComponent(rep.reviewId)}`
-    const sep = baseWithoutHash.includes('?') ? '&' : '?'
-    const fullUrl = `${baseWithoutHash}${sep}${sessionQuery}${tokenPart ? `${tokenPart}&${sessionQuery}` : `#${sessionQuery}`}`
-
-    openBrowser(fullUrl)
+    const { url } = await getOrStartCliWebServer(targetDir)
+    openBrowser(url)
 
     const outdatedNotice = isOutdated
-      ? `\n> ⚠ **Lưu ý:** Mã nguồn tại \`${rep.projectRoot}\` đã có thay đổi so với thời điểm review này (\`${rep.revision}\`).\n> Đang hiển thị kết quả phân tích cũ. Bạn có thể gõ \`/review "${rep.projectRoot}"\` để quét lại mã mới nhất.\n`
+      ? '\n> ⚠ **Lưu ý:** Mã nguồn dự án đã có thay đổi so với thời điểm review này. Bạn có thể gõ `/review` để quét lại mã mới nhất.\n'
       : ''
 
-    const cleanDisplayUrl = fullUrl.split('#')[0]
+    const cleanDisplayUrl = url.split('#')[0]
 
     report([
-      '📊 **Code Reviewer by Graph (Sơ đồ cây trực quan SVG)**',
+      '📊 **Code Reviewer by Graph**',
       '',
       `Đã mở giao diện trực quan cho dự án **${rep.projectName}** (Phiên bản: \`${rep.revision}\`):`,
-      `👉 **[${cleanDisplayUrl}](${fullUrl})**`,
+      `👉 **[${cleanDisplayUrl}](${url})**`,
       '',
-      `- Thư mục phân tích: \`${rep.projectRoot}\``,
       `- Đồ thị hiển thị: **${rep.nodes.length} nodes**, **${rep.edges.length} edges**`,
       `- Đã gắn: **${rep.findings.length} vấn đề** vào đúng file/hàm/dòng mã`,
       outdatedNotice,
