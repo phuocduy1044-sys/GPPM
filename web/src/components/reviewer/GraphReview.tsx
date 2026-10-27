@@ -56,6 +56,7 @@ export function GraphReview({
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId)
   const activeNodeId = hoveredNodeId || selectedNodeId
   const activeNode = nodes.find((n) => n.id === activeNodeId)
   const callerNames = new Set(
