@@ -145,6 +145,7 @@ export interface ReviewReport {
   isOutdated?: boolean;
   patch?: Patch;
   verification?: VerificationResult;
+  userRequirement?: string;
 }
 
 // Request & Response types for Local API
@@ -153,6 +154,7 @@ export interface ReviewRequest {
   projectPath: string;
   mode?: AnalysisMode;
   forceRescan?: boolean;
+  userRequirement?: string;
 }
 
 export interface ReviewResponse {

@@ -22,6 +22,7 @@ export interface ReviewProjectOptions {
   projectRoot: string;
   mode?: AnalysisMode;
   forceRescan?: boolean;
+  userRequirement?: string;
 }
 
 export async function reviewProject(options: ReviewProjectOptions): Promise<ReviewReport> {
@@ -40,7 +41,8 @@ export async function reviewProject(options: ReviewProjectOptions): Promise<Revi
   const ruleFindings = runRules(files, astResult);
 
   // 4. Run AI or Fallback
-  const aiResult = await runAiEnhancement(ruleFindings, files, astResult.nodes, mode);
+  const effectiveMode = options.mode ?? 'rules';
+  const aiResult = await runAiEnhancement(ruleFindings, files, astResult.nodes, effectiveMode, options.userRequirement);
 
   const reviewId = `rev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -68,6 +70,7 @@ export async function reviewProject(options: ReviewProjectOptions): Promise<Revi
     findings: aiResult.findings,
     fileContents,
     isOutdated: false,
+    userRequirement: options.userRequirement,
   };
 
   activeReport = report;

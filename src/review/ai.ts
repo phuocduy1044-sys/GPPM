@@ -37,7 +37,8 @@ export async function runAiEnhancement(
   ruleFindings: Finding[],
   files: ScannedFile[],
   nodes: GraphNode[],
-  requestedMode?: AnalysisMode
+  requestedMode?: AnalysisMode,
+  userRequirement?: string
 ): Promise<AiReviewResult> {
   const currentProvider = providerName();
   const currentModel = loadConfig().model || 'default';
@@ -84,7 +85,8 @@ export async function runAiEnhancement(
     evidence: f.evidence,
   }));
 
-  const prompt = `Bạn là chuyên gia thẩm định mã nguồn (AI Code Reviewer).
+  const reqSection = userRequirement ? `\nĐẶC BIỆT CHÚ Ý YÊU CẦU CỦA NGƯỜI DÙNG: "${userRequirement}". Hãy ưu tiên phân tích sâu, làm rõ và bổ sung các vấn đề liên quan trực tiếp đến yêu cầu này.\n` : '';
+  const prompt = `Bạn là chuyên gia thẩm định mã nguồn (AI Code Reviewer).${reqSection}
 Dưới đây là mã nguồn dự án và danh sách các vấn đề (findings) đã được phát hiện tĩnh bằng AST rules.
 
 MÃ NGUỒN DỰ ÁN:

@@ -5,9 +5,10 @@
  * 1. CLI is the primary work environment where user runs review and gets instant findings.
  * 2. `/graph` (or `/Graph`) opens or reuses the local Code Reviewer by Graph UI on the web,
  *    binding directly to the current CLI session's review results without re-running AI.
- * 3. Context-aware folder detection: when user sends a folder address/path in conversation
- *    context, bare `/review` automatically picks up that target folder instead of analyzing
- *    the entire project root.
+ * 3. Context-aware folder detection:
+ *    - If `/review` has requirements or target folder: executes that requirement/target.
+ *    - If bare `/review` without arguments: reviews the folder from conversation context.
+ *    - If no folder in context either: prints clear guidance notification instead of blindly scanning cwd.
  */
 import { resolve, basename, relative, isAbsolute } from 'path'
 import { existsSync, statSync } from 'fs'
@@ -16,6 +17,7 @@ import { reviewProject, getCurrentReport, setCurrentReport } from '../../review/
 import { scanProject } from '../../review/scanner.js'
 import { buildAstGraph } from '../../review/ast.js'
 import { getOrStartCliWebServer, openBrowser } from '../../web/cliWebServer.js'
+import type { Finding } from '../../review/types.js'
 import type { ChatMessage } from '../types.js'
 
 /**
@@ -194,6 +196,97 @@ export function extractContextFolder(
   return null
 }
 
+export interface ParsedReviewInput {
+  targetFolder: string | null
+  requirement: string | null
+  isExplicitProjectRoot: boolean
+}
+
+/**
+ * Parses raw `/review` input to separate target folder, requirements, or explicit project-root flags.
+ */
+export function parseReviewInput(rawInput: string, cwd: string): ParsedReviewInput {
+  const trimmedInput = rawInput.replace(/^\/[rR]eview\s*/, '').trim()
+  if (!trimmedInput) {
+    return { targetFolder: null, requirement: null, isExplicitProjectRoot: false }
+  }
+
+  if (trimmedInput === '.' || trimmedInput.toLowerCase() === 'all') {
+    return { targetFolder: cwd, requirement: null, isExplicitProjectRoot: true }
+  }
+
+  if (/^\.\s+/.test(trimmedInput) || /^all\s+/i.test(trimmedInput)) {
+    const req = trimmedInput.replace(/^(\.|\ball\b)\s+/i, '').trim()
+    return { targetFolder: cwd, requirement: req || null, isExplicitProjectRoot: true }
+  }
+
+  // Quoted folder at beginning: "folder" requirement
+  const quotedMatch = /^(['"`])([^'"`]+)\1(?:\s+([\s\S]*))?$/.exec(trimmedInput)
+  if (quotedMatch) {
+    const possiblePath = quotedMatch[2].trim()
+    const possibleReq = (quotedMatch[3] || '').trim()
+    const dir = checkDirectoryCandidate(possiblePath, cwd)
+    if (dir) {
+      return { targetFolder: dir, requirement: possibleReq || null, isExplicitProjectRoot: false }
+    }
+  }
+
+  // First token is directory
+  const firstSpaceIdx = trimmedInput.search(/\s/)
+  if (firstSpaceIdx > 0) {
+    const firstToken = trimmedInput.slice(0, firstSpaceIdx)
+    const rest = trimmedInput.slice(firstSpaceIdx).trim()
+    const dir = checkDirectoryCandidate(firstToken, cwd)
+    if (dir) {
+      return { targetFolder: dir, requirement: rest || null, isExplicitProjectRoot: false }
+    }
+  }
+
+  // Entire input is directory
+  const wholeDir = checkDirectoryCandidate(trimmedInput, cwd)
+  if (wholeDir) {
+    return { targetFolder: wholeDir, requirement: null, isExplicitProjectRoot: false }
+  }
+
+  // Embedded directory in text
+  const embeddedDir = findFolderInText(trimmedInput, cwd)
+  if (embeddedDir) {
+    return { targetFolder: embeddedDir, requirement: trimmedInput, isExplicitProjectRoot: false }
+  }
+
+  // No directory found: entire input is requirement
+  return { targetFolder: null, requirement: trimmedInput, isExplicitProjectRoot: false }
+}
+
+/**
+ * Checks if a finding directly matches the user's specific review requirement.
+ */
+export function matchesRequirement(finding: Finding, requirement: string): boolean {
+  if (!requirement || !requirement.trim()) return false
+  const reqLower = requirement.toLowerCase()
+  const text = `${finding.title} ${finding.explanation} ${finding.ruleId} ${finding.category} ${finding.evidence} ${finding.filePath}`.toLowerCase()
+
+  if (finding.category === 'security' && /(bảo mật|an toàn|security|tấn công|lỗ hổng|vulnerability|injection|xss|sql|auth|token|secret|leak|credential)/i.test(reqLower)) {
+    return true
+  }
+  if (finding.category === 'bug' && /(bug|lỗi|sai|crash|null|exception|hỏng|failure|error)/i.test(reqLower)) {
+    return true
+  }
+  if ((finding.category === 'maintainability' || text.includes('memory') || text.includes('leak') || text.includes('perf')) && /(hiệu năng|tối ưu|performance|speed|chậm|memory|leak|tài nguyên)/i.test(reqLower)) {
+    return true
+  }
+  if (finding.category === 'style' && /(style|chuẩn|format|convention|quy tắc|định dạng|clean)/i.test(reqLower)) {
+    return true
+  }
+
+  const tokens = reqLower.split(/[\s,;'"()<>[\]]+/).filter((t) => t.length >= 3 && !/^(các|cho|với|trong|kiểm|tra|xem|tìm|giùm|giúp|nhé|được|không|phân|tích)$/i.test(t))
+  for (const token of tokens) {
+    if (text.includes(token)) return true
+  }
+
+  return false
+}
+
 export async function handleReviewCommand(
   rawInput: string,
   cwd: string,
@@ -202,35 +295,69 @@ export async function handleReviewCommand(
   agentHistory?: Array<{ role: string; content?: unknown }>,
   messages?: ChatMessage[],
 ): Promise<void> {
-  setNotice('🔍 Đang phân tích mã nguồn và dựng đồ thị gọi hàm...')
-  try {
-    let targetArg = rawInput.replace(/^\/[rR]eview\s*/, '').trim()
-    let isFromContext = false
-    let targetPath: string
+  const parsed = parseReviewInput(rawInput, cwd)
+  let isFromContext = false
 
-    if (targetArg) {
-      targetArg = targetArg.replace(/^['"`]+|['"`]+$/g, '').trim()
-      if (targetArg === '.' || targetArg.toLowerCase() === 'all') {
-        targetPath = cwd
-      } else {
-        targetPath = resolve(cwd, targetArg)
-      }
-    } else {
-      const contextFolder = extractContextFolder(cwd, messages, agentHistory)
-      if (contextFolder) {
-        targetPath = contextFolder
-        isFromContext = true
-      } else {
-        targetPath = cwd
-      }
-    }
-
-    if (!existsSync(targetPath)) {
-      report(`❌ Thư mục không tồn tại: \`${targetPath}\``)
+  // 1. If bare /review was called without any folder or requirement:
+  if (!parsed.isExplicitProjectRoot && !parsed.targetFolder && !parsed.requirement) {
+    // "còn không có thì review folder ngữ cảnh. còn không có thì in ra thông báo"
+    const contextFolder = extractContextFolder(cwd, messages, agentHistory)
+    if (!contextFolder) {
+      report([
+        '⚠ **Chưa xác định được thư mục cần phân tích.**',
+        '',
+        'Không tìm thấy đường dẫn thư mục trong lệnh và cũng không có thư mục nào được đề cập trong ngữ cảnh hội thoại gần đây.',
+        '',
+        '👉 Bạn có thể dùng lệnh theo các cách sau:',
+        '   - Thư mục kèm yêu cầu: `/review <thư-mục> <yêu-cầu>` *(ví dụ: `/review src/ kiểm tra lỗi bảo mật`)*',
+        '   - Chỉ định thư mục cụ thể: `/review <đường-dẫn-thư-mục>` *(ví dụ: `/review examples/demo-project`)*',
+        '   - Yêu cầu phân tích cụ thể: `/review <yêu-cầu>` *(ví dụ: `/review kiểm tra bảo mật SQL injection`)*',
+        '   - Phân tích toàn bộ dự án: `/review .`',
+        '',
+        '💡 *Gợi ý:* Bạn cũng có thể gửi địa chỉ folder vào khung chat trước, sau đó chỉ cần gõ `/review`.',
+      ].join('\n'))
       return
     }
 
-    const rep = await reviewProject({ projectRoot: targetPath, mode: 'rules' })
+    // Has context folder -> proceed to review that context folder
+    parsed.targetFolder = contextFolder
+    isFromContext = true
+  }
+
+  // 2. Determine target path and whether it's from context
+  let targetPath: string
+
+  if (parsed.isExplicitProjectRoot) {
+    targetPath = cwd
+  } else if (parsed.targetFolder) {
+    targetPath = parsed.targetFolder
+  } else {
+    // User provided a requirement without a folder, e.g. `/review kiểm tra SQL injection`
+    // Check if there is a context folder first
+    const contextFolder = extractContextFolder(cwd, messages, agentHistory)
+    if (contextFolder) {
+      targetPath = contextFolder
+      isFromContext = true
+    } else {
+      targetPath = cwd
+    }
+  }
+
+  if (!existsSync(targetPath)) {
+    report(`❌ Thư mục không tồn tại: \`${targetPath}\``)
+    return
+  }
+
+  setNotice(parsed.requirement
+    ? `🔍 Đang phân tích mã nguồn theo yêu cầu: "${parsed.requirement}"...`
+    : '🔍 Đang phân tích mã nguồn và dựng đồ thị gọi hàm...')
+
+  try {
+    const rep = await reviewProject({
+      projectRoot: targetPath,
+      mode: 'rules',
+      userRequirement: parsed.requirement || undefined,
+    })
     setCurrentReport(rep)
 
     const crit = rep.findings.filter((f) => f.severity === 'critical').length
@@ -238,21 +365,53 @@ export async function handleReviewCommand(
     const med = rep.findings.filter((f) => f.severity === 'medium').length
     const low = rep.findings.filter((f) => f.severity === 'low').length
 
+    let matchedFindings: Finding[] = []
+    let otherFindings: Finding[] = rep.findings
+
+    if (parsed.requirement) {
+      matchedFindings = rep.findings.filter((f) => matchesRequirement(f, parsed.requirement!))
+      otherFindings = rep.findings.filter((f) => !matchesRequirement(f, parsed.requirement!))
+    }
+
+    const renderFinding = (f: Finding, i: number, isMatched: boolean) => {
+      const badge = f.severity === 'critical' ? '🔴 **CRITICAL**'
+        : f.severity === 'high' ? '🟠 **HIGH**'
+        : f.severity === 'medium' ? '🟡 **MEDIUM**'
+        : '🔵 **LOW**'
+      const matchTag = isMatched ? ' 🎯 *(Trực tiếp liên quan đến yêu cầu)*' : ''
+      return `### #${i + 1} [${f.category.toUpperCase()}] ${f.title}${matchTag}\n` +
+        `- **Mức độ:** ${badge} | **Vị trí:** \`${f.filePath}:${f.line}\`\n` +
+        `- **Bằng chứng:** \`${f.evidence.replace(/\n/g, ' ')}\`\n` +
+        `- **Nguyên nhân:** ${f.explanation}\n` +
+        `- **Đề xuất sửa:** ${f.suggestion}\n`
+    }
+
     let findingsList = ''
     if (rep.findings.length === 0) {
       findingsList = '✓ Không phát hiện lỗ hổng hay vi phạm nào trong phạm vi quét.'
+    } else if (parsed.requirement) {
+      const sections: string[] = []
+      if (matchedFindings.length > 0) {
+        sections.push(
+          `### 🎯 Vấn đề liên quan trực tiếp đến yêu cầu "${parsed.requirement}" (${matchedFindings.length}):\n\n` +
+          matchedFindings.map((f, i) => renderFinding(f, i, true)).join('\n')
+        )
+      } else {
+        sections.push(`> 🎯 **Yêu cầu:** "${parsed.requirement}"\n> ✓ Không phát hiện vấn đề nào vi phạm trực tiếp yêu cầu này trong các tệp đã quét.\n`)
+      }
+
+      if (otherFindings.length > 0) {
+        sections.push(
+          `### 📋 Các phát hiện khác (${otherFindings.length}):\n\n` +
+          otherFindings.slice(0, 5).map((f, i) => renderFinding(f, matchedFindings.length + i, false)).join('\n')
+        )
+        if (otherFindings.length > 5) {
+          sections.push(`*...và còn ${otherFindings.length - 5} vấn đề khác.*`)
+        }
+      }
+      findingsList = sections.join('\n\n')
     } else {
-      findingsList = rep.findings.slice(0, 8).map((f, i) => {
-        const badge = f.severity === 'critical' ? '🔴 **CRITICAL**'
-          : f.severity === 'high' ? '🟠 **HIGH**'
-          : f.severity === 'medium' ? '🟡 **MEDIUM**'
-          : '🔵 **LOW**'
-        return `### #${i + 1} [${f.category.toUpperCase()}] ${f.title}\n` +
-          `- **Mức độ:** ${badge} | **Vị trí:** \`${f.filePath}:${f.line}\`\n` +
-          `- **Bằng chứng:** \`${f.evidence.replace(/\n/g, ' ')}\`\n` +
-          `- **Nguyên nhân:** ${f.explanation}\n` +
-          `- **Đề xuất sửa:** ${f.suggestion}\n`
-      }).join('\n')
+      findingsList = rep.findings.slice(0, 8).map((f, i) => renderFinding(f, i, false)).join('\n')
       if (rep.findings.length > 8) {
         findingsList += `\n*...và còn ${rep.findings.length - 8} vấn đề khác.*`
       }
@@ -266,6 +425,10 @@ export async function handleReviewCommand(
         ? `**Phạm vi quét:** Thư mục \`${scopeDisplay}\` | ${rep.scanScope.totalFilesScanned} tệp (${rep.scanScope.scanDurationMs}ms)`
         : `**Phạm vi quét:** Toàn bộ dự án | ${rep.scanScope.totalFilesScanned} tệp (${rep.scanScope.scanDurationMs}ms)`
 
+    const requirementLine = parsed.requirement
+      ? `**Yêu cầu trọng tâm:** 🎯 *"${parsed.requirement}"*\n`
+      : ''
+
     const contextNote = isFromContext
       ? `\n> 💡 **Ghi chú:** Đã tự động nhận diện thư mục \`${scopeDisplay}\` từ ngữ cảnh hội thoại. Nhập \`/review .\` nếu muốn phân tích toàn bộ dự án.\n`
       : ''
@@ -275,6 +438,7 @@ export async function handleReviewCommand(
       '',
       `**Dự án:** \`${rep.projectName}\` | **Phiên bản (Revision):** \`${rep.revision}\``,
       `${scopeLine} | **Đồ thị AST:** ${rep.nodes.length} nodes, ${rep.edges.length} edges`,
+      requirementLine,
       contextNote,
       '---',
       '',

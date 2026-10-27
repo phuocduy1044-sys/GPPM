@@ -6,9 +6,12 @@ import {
   checkDirectoryCandidate,
   findFolderInText,
   extractContextFolder,
+  parseReviewInput,
+  matchesRequirement,
 } from './reviewGraphHandler.js'
 import { setCurrentReport, getCurrentReport } from '../../review/engine.js'
 import type { ChatMessage } from '../types.js'
+import type { Finding } from '../../review/types.js'
 
 describe('reviewGraphHandler', () => {
   const cwdRoot = resolve('.')
@@ -71,51 +74,79 @@ describe('reviewGraphHandler', () => {
     })
   })
 
-  it('notifies when /graph is called without any prior review', async () => {
-    // Set a report pointing to a different non-matching path
-    setCurrentReport({
-      schemaVersion: 1,
-      reviewId: 'test-review-id',
-      revision: 'dummy',
-      timestamp: new Date().toISOString(),
-      projectName: 'other',
-      projectRoot: '/some/other/path/never/matched',
-      status: 'completed',
-      analysisMode: 'rules',
-      providerInfo: { provider: 'none', model: 'none', isFallback: false },
-      scanScope: { totalFilesScanned: 0, filesRead: [], filesIgnored: [], ignoreReasons: {}, scanDurationMs: 0 },
-      nodes: [],
-      edges: [],
-      unresolvedCalls: [],
-      findings: [],
+  describe('parseReviewInput and requirement matching', () => {
+    it('parses bare /review, paths, and requirements', () => {
+      expect(parseReviewInput('/review', cwdRoot)).toEqual({
+        targetFolder: null,
+        requirement: null,
+        isExplicitProjectRoot: false,
+      })
+
+      expect(parseReviewInput('/review .', cwdRoot)).toEqual({
+        targetFolder: cwdRoot,
+        requirement: null,
+        isExplicitProjectRoot: true,
+      })
+
+      expect(parseReviewInput('/review . kiểm tra bảo mật', cwdRoot)).toEqual({
+        targetFolder: cwdRoot,
+        requirement: 'kiểm tra bảo mật',
+        isExplicitProjectRoot: true,
+      })
+
+      const withReq = parseReviewInput('/review examples/demo-project kiểm tra SQL injection', cwdRoot)
+      expect(withReq.targetFolder).toBe(demoRoot)
+      expect(withReq.requirement).toBe('kiểm tra SQL injection')
+
+      const quoted = parseReviewInput('/review "examples/demo-project" tìm bug null', cwdRoot)
+      expect(quoted.targetFolder).toBe(demoRoot)
+      expect(quoted.requirement).toBe('tìm bug null')
+
+      const reqOnly = parseReviewInput('/review kiểm tra an toàn bảo mật', cwdRoot)
+      expect(reqOnly.targetFolder).toBeNull()
+      expect(reqOnly.requirement).toBe('kiểm tra an toàn bảo mật')
     })
 
-    const reports: string[] = []
-    const reportFn = (c: string) => reports.push(c)
-    const noticeFn = vi.fn()
+    it('matchesRequirement matches security, bug, and keyword requirements', () => {
+      const secFinding: Finding = {
+        id: 'f1',
+        ruleId: 'SEC_SQL_INJECTION',
+        category: 'security',
+        severity: 'critical',
+        title: 'SQL Injection detected',
+        filePath: 'src/db.ts',
+        line: 10,
+        evidence: 'query = "SELECT * FROM users WHERE id = " + id',
+        explanation: 'User input concatenation into SQL query',
+        suggestion: 'Use parameterized queries',
+        source: 'rule',
+        confidence: 'certain',
+      }
 
-    await handleGraphCommand(demoRoot, reportFn, noticeFn)
-
-    expect(reports.length).toBe(1)
-    expect(reports[0]).toContain('Chưa có kết quả review cho dự án hiện tại')
-    expect(reports[0]).toContain('/review')
+      expect(matchesRequirement(secFinding, 'kiểm tra bảo mật')).toBe(true)
+      expect(matchesRequirement(secFinding, 'tìm lỗi SQL injection')).toBe(true)
+      expect(matchesRequirement(secFinding, 'tối ưu hóa style code')).toBe(false)
+    })
   })
 
-  it('runs /review with explicit path, saves report, and formats markdown summary', async () => {
+  it('notifies when bare /review is called without any folder in context', async () => {
     const reports: string[] = []
     const reportFn = (c: string) => reports.push(c)
     const noticeFn = vi.fn()
 
-    await handleReviewCommand('/review examples/demo-project', cwdRoot, reportFn, noticeFn)
+    // Clear previous report
+    setCurrentReport(null as any)
+
+    // Bare /review with no context messages and no agent history
+    await handleReviewCommand('/review', cwdRoot, reportFn, noticeFn, [], [])
 
     expect(reports.length).toBe(1)
-    expect(reports[0]).toContain('BÁO CÁO PHÂN TÍCH MÃ NGUỒN')
-    expect(reports[0]).toContain('/graph')
+    expect(reports[0]).toContain('Chưa xác định được thư mục cần phân tích')
+    expect(reports[0]).toContain('/review <thư-mục>')
+    expect(reports[0]).toContain('/review .')
 
-    const current = getCurrentReport()
-    expect(current).toBeDefined()
-    expect(current?.projectName).toBe('demo-project')
-    expect(current?.findings.length).toBeGreaterThanOrEqual(2)
+    // Verifies it did NOT scan the whole project automatically
+    expect(getCurrentReport()).toBeNull()
   })
 
   it('runs bare /review and automatically reviews folder sent in context', async () => {
@@ -127,7 +158,6 @@ describe('reviewGraphHandler', () => {
       { role: 'user', content: 'Ngữ cảnh: địa chỉ folder `examples/demo-project`' },
     ]
 
-    // Clear previous report
     setCurrentReport(null as any)
 
     await handleReviewCommand('/review', cwdRoot, reportFn, noticeFn, undefined, messages)
@@ -143,7 +173,42 @@ describe('reviewGraphHandler', () => {
     expect(current?.projectRoot).toBe(demoRoot)
   })
 
-  it('runs explicit /review . to force reviewing entire project even if context has a folder', async () => {
+  it('runs /review with requirement and highlights matching findings', async () => {
+    const reports: string[] = []
+    const reportFn = (c: string) => reports.push(c)
+    const noticeFn = vi.fn()
+
+    await handleReviewCommand('/review examples/demo-project kiểm tra bảo mật SQL injection', cwdRoot, reportFn, noticeFn)
+
+    expect(reports.length).toBe(1)
+    expect(reports[0]).toContain('BÁO CÁO PHÂN TÍCH MÃ NGUỒN')
+    expect(reports[0]).toContain('Yêu cầu trọng tâm')
+    expect(reports[0]).toContain('kiểm tra bảo mật SQL injection')
+    expect(reports[0]).toContain('Trực tiếp liên quan đến yêu cầu')
+
+    const current = getCurrentReport()
+    expect(current).toBeDefined()
+    expect(current?.projectName).toBe('demo-project')
+  })
+
+  it('runs /review <requirement> without explicit folder, using context folder', async () => {
+    const reports: string[] = []
+    const reportFn = (c: string) => reports.push(c)
+    const noticeFn = vi.fn()
+
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'Đang làm việc tại thư mục `examples/demo-project`' },
+    ]
+
+    await handleReviewCommand('/review kiểm tra lỗi bug null', cwdRoot, reportFn, noticeFn, undefined, messages)
+
+    expect(reports.length).toBe(1)
+    expect(reports[0]).toContain('BÁO CÁO PHÂN TÍCH MÃ NGUỒN')
+    expect(reports[0]).toContain('demo-project')
+    expect(reports[0]).toContain('kiểm tra lỗi bug null')
+  })
+
+  it('runs explicit /review . to force reviewing entire project', async () => {
     const reports: string[] = []
     const reportFn = (c: string) => reports.push(c)
     const noticeFn = vi.fn()
@@ -156,7 +221,6 @@ describe('reviewGraphHandler', () => {
 
     expect(reports.length).toBe(1)
     expect(reports[0]).toContain('BÁO CÁO PHÂN TÍCH MÃ NGUỒN')
-    // Should NOT contain the context auto-pick note
     expect(reports[0]).not.toContain('tự động nhận từ ngữ cảnh hội thoại')
   })
 
@@ -165,11 +229,9 @@ describe('reviewGraphHandler', () => {
     const reportFn = (c: string) => reports.push(c)
     const noticeFn = vi.fn()
 
-    // Ensure we have a report for demo-project
     await handleReviewCommand('/review examples/demo-project', cwdRoot, reportFn, noticeFn)
 
     reports.length = 0
-    // Run /graph from project cwdRoot where projectRoot is a subfolder
     await handleGraphCommand(cwdRoot, reportFn, noticeFn)
 
     expect(reports.length).toBe(1)
