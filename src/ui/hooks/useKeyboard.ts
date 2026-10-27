@@ -1,3 +1,4 @@
+import type { ReviewReport } from '../../review/types.js'
 import { useRef } from 'react'
 /**
  * useKeyboard — wires all keyboard input for the App.
@@ -266,6 +267,7 @@ interface KeyboardOptions {
   mcpServers: McpServerStatus[]
   /** The active model's context window, for `/context`. Null when unreported. */
   activeCtx: number | null
+  setGraphReport?: (rep: ReviewReport | null) => void
 }
 
 export function useKeyboard(opts: KeyboardOptions) {
@@ -276,7 +278,7 @@ export function useKeyboard(opts: KeyboardOptions) {
     agent,
     input, setInput, caret, setCaret, paletteCursor, setPaletteCursor, filePickerCursor, setFilePickerCursor,
     sessionId, setSessionId, onResumeSession, sessions, setSessions, setNotice, setLogEpoch,
-    switchProvider, mcpServers, activeCtx,
+    switchProvider, mcpServers, activeCtx, setGraphReport,
   } = opts
 
   const inputRef = useRef(input)
@@ -495,6 +497,10 @@ export function useKeyboard(opts: KeyboardOptions) {
         if (!isToolExpanded(id)) holdScroll()
         toggleToolExpanded(id)
       }
+      if (state === 'graph') {
+        if (rows !== 0) setCursor((i) => Math.max(0, i + rows))
+        return
+      }
       if (rows !== 0) scrollBy(rows)
       return
     }
@@ -625,6 +631,19 @@ export function useKeyboard(opts: KeyboardOptions) {
       if (text && !key.ctrl && !key.meta && !/[\x00-\x1f\x7f]/.test(text)) {
         setPickerQuery(pickerQuery + text)
         setCursor(() => 0)
+      }
+      return
+    }
+
+    // --- graph / mind map screen (/graph) ---
+    if (state === 'graph') {
+      if (key.upArrow) { setCursor((i) => Math.max(0, i - 1)); return }
+      if (key.downArrow) { setCursor((i) => i + 1); return }
+      if (key.pageUp) { setCursor((i) => Math.max(0, i - 10)); return }
+      if (key.pageDown) { setCursor((i) => i + 10); return }
+      if (key.escape || char === 'q' || char === 'Q' || key.return) {
+        setState('ready')
+        return
       }
       return
     }
@@ -853,7 +872,13 @@ export function useKeyboard(opts: KeyboardOptions) {
         } else if (trimmed.toLowerCase() === '/graph' || trimmed.toLowerCase().startsWith('/graph ')) {
           setNotice(null)
           import('../handlers/reviewGraphHandler.js')
-            .then(({ handleGraphCommand }) => handleGraphCommand(process.cwd(), report, setNotice))
+            .then(({ handleGraphCommand }) =>
+              handleGraphCommand(process.cwd(), report, setNotice, (rep) => {
+                if (setGraphReport) setGraphReport(rep)
+                setCursor(() => 0)
+                setState('graph')
+              }),
+            )
             .catch((err) => report(`❌ ${err instanceof Error ? err.message : String(err)}`))
         } else if (trimmed === '/export' || trimmed.startsWith('/export ')) {
           if (!messages.length) setNotice('nothing to export yet')

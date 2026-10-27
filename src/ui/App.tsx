@@ -1,3 +1,5 @@
+import { GraphView } from './GraphView.js'
+import type { ReviewReport } from '../review/types.js'
 /**
  * App — root component.
  *
@@ -47,7 +49,7 @@ const CONTEXT_WARN_AT = 0.7
  */
 const AUTO_COMPACT_AT = 0.85
 
-type AppState = 'loading' | 'select-model' | 'ready' | 'models' | 'providers' | 'sessions'
+type AppState = 'loading' | 'select-model' | 'ready' | 'models' | 'providers' | 'sessions' | 'graph'
 
 export interface AppProps {
   /** `--resume <id>` — open this session instead of a new one. */
@@ -81,6 +83,7 @@ export function App({ resumeId, continueLast }: AppProps) {
   // without this it gets fetched twice.
   const ctxInFlight = useRef(new Set<string>())
   const [state, setState] = useState<AppState>('loading')
+  const [graphReport, setGraphReport] = useState<ReviewReport | null>(null)
   const [cursor, setCursor] = useState(0)
   const [pickerQuery, setPickerQuery] = useState('')
   const [updateAvailable, setUpdateAvailable] = useState<string | null>(null)
@@ -427,7 +430,7 @@ export function App({ resumeId, continueLast }: AppProps) {
     sessionId, setSessionId,
     onResumeSession: (id) => titledSessions.current.add(id),
     sessions, setSessions, setNotice, setLogEpoch,
-    switchProvider, mcpServers, activeCtx,
+    switchProvider, mcpServers, activeCtx, setGraphReport,
   })
 
   const effort: Effort = cfg.effort ?? 'medium'
@@ -484,7 +487,7 @@ export function App({ resumeId, continueLast }: AppProps) {
   // flex-grows into whatever the input bar and pickers leave. Pre-ready screens
   // stay auto-height — they're short, and a full-height frame there would just
   // blank the terminal.
-  const fullScreen = state === 'ready' || state === 'sessions' || state === 'models'
+  const fullScreen = state === 'ready' || state === 'sessions' || state === 'models' || state === 'graph'
 
   const welcomeHeader = useMemo(
     () => <WelcomeBlock model={cfg.model} activeCtx={activeCtx} effort={effort} cwd={cwd} provider={provName} />,
@@ -503,7 +506,7 @@ export function App({ resumeId, continueLast }: AppProps) {
       {/* Pre-ready screens render the banner dynamically. In ready/chat mode it
           moves inside the scrolling transcript, as its first row, so it scrolls
           away with the rest of the history. */}
-      {state !== 'ready' && state !== 'sessions' && state !== 'models' && (
+      {state !== 'ready' && state !== 'sessions' && state !== 'models' && state !== 'graph' && (
         <WelcomeBlock variant="compact" model={cfg.model} activeCtx={activeCtx} effort={effort} cwd={cwd} provider={provName} error={agent.error} updateAvailable={updateAvailable} updateStatus={updateStatus} />
       )}
 
@@ -544,6 +547,15 @@ export function App({ resumeId, continueLast }: AppProps) {
           cursor={cursor}
           activeName={provName}
           query={pickerQuery}
+        />
+      )}
+
+      {state === 'graph' && (
+        <GraphView
+          report={graphReport}
+          scrollOffset={cursor}
+          onClose={() => setState('ready')}
+          maxRows={Math.max(8, termRows - 2)}
         />
       )}
 
