@@ -33,11 +33,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maruakshay/viecodie-cli.git"
+    "url": "git+https://github.com/phuocduy1044-sys/GPPM.git"
   },
-  "homepage": "https://github.com/maruakshay/viecodie-cli#readme",
+  "homepage": "https://github.com/phuocduy1044-sys/GPPM#readme",
   "bugs": {
-    "url": "https://github.com/maruakshay/viecodie-cli/issues"
+    "url": "https://github.com/phuocduy1044-sys/GPPM/issues",
+    "email": "phuocduy1044@gmail.com"
   },
   "keywords": [
     "cli",
@@ -111,5 +112,6 @@
     "typescript": "^5.7.0",
     "vite": "^6.4.3",
     "vitest": "^4.1.9"
-  }
+  },
+  "author": "Đội thi GPPM 2026 <phuocduy1044@gmail.com>"
 }
