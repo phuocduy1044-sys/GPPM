@@ -281,12 +281,31 @@ export const DEMO_PROJECT_FIXTURE: ReviewProject = {
   ],
   testResult: {
     status: 'failed',
-    totalTests: 1,
+    totalTests: 3,
     failedTests: 1,
+    passedTests: 2,
     durationMs: 119,
     score: '12/100',
     command: 'node --test suite.mjs',
     exitCode: 1,
+    tests: [
+      {
+        name: 'test_sql_injection_defense: buildAuthQuery must parameterize SQL parameters',
+        status: 'failed',
+        durationMs: 48,
+        errorMessage: 'AssertionError [ERR_ASSERTION]: Expected querySafe with parameterized tokens, received string concatenation with raw username input.',
+      },
+      {
+        name: 'test_input_sanitization: reject empty username and role payload',
+        status: 'passed',
+        durationMs: 35,
+      },
+      {
+        name: 'test_hash_verification: hashPassword should match SHA-256 digest',
+        status: 'passed',
+        durationMs: 36,
+      },
+    ],
     logOutput: `>_ vie-review@sandbox:~$ node --test suite.mjs                      exit 1 · 119 ms
 
 file:///tmp/vie-review-suite-1793034637828-jlmbn0ag.mjs:6

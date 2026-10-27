@@ -31,21 +31,23 @@ export function GraphReview({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [filterIssueOnly, setFilterIssueOnly] = useState(false)
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId)
+  const activeNodeId = hoveredNodeId || selectedNodeId
+  const activeNode = nodes.find((n) => n.id === activeNodeId)
   const callerNames = new Set(
-    (selectedNode?.calledBy || []).map((c: any) => (typeof c === 'string' ? c : c))
+    (activeNode?.calledBy || []).map((c: any) => (typeof c === 'string' ? c : c))
   )
   const calleeNames = new Set(
-    (selectedNode?.calls || []).map((c: any) => (typeof c === 'string' ? c : c.functionName))
+    (activeNode?.calls || []).map((c: any) => (typeof c === 'string' ? c : c.functionName))
   )
 
   const isCaller = (fnName: string) => callerNames.has(fnName)
   const isCallee = (fnName: string) => calleeNames.has(fnName)
   const isRelated = (n: any) => {
-    if (!selectedNodeId) return true
-    if (n.id === selectedNodeId) return true
+    if (!activeNodeId) return true
+    if (n.id === activeNodeId) return true
     return isCaller(n.functionName) || isCallee(n.functionName)
   }
 
@@ -192,10 +194,10 @@ export function GraphReview({
 
         const isSameFile = src.file === tgt.file
         const isSelected =
-          edge.sourceNodeId === selectedNodeId ||
-          edge.targetNodeId === selectedNodeId ||
-          src.file === selectedNode?.file ||
-          tgt.file === selectedNode?.file
+          edge.sourceNodeId === activeNodeId ||
+          edge.targetNodeId === activeNodeId ||
+          src.file === activeNode?.file ||
+          tgt.file === activeNode?.file
 
         if (isSameFile) {
           // Arc out to the right within the same file container
@@ -246,7 +248,7 @@ export function GraphReview({
         }
       })
       .filter((e): e is NonNullable<typeof e> => e !== null)
-  }, [edges, nodePositions, selectedNodeId, selectedNode])
+  }, [edges, nodePositions, selectedNodeId])
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden bg-[#070c14] select-none">
@@ -437,7 +439,7 @@ export function GraphReview({
               strokeDasharray={ce.isCrossFile || ce.isHttp ? '4 3' : undefined}
               markerEnd={ce.isHttp ? 'url(#arrow-purple)' : 'url(#arrow-cyan)'}
               className="transition-all"
-              opacity={!selectedNodeId || ce.isSelected ? 0.9 : 0.25}
+              opacity={!activeNodeId || ce.isSelected ? 0.9 : 0.25}
             />
           ))}
 
@@ -492,6 +494,8 @@ export function GraphReview({
                 key={node.id}
                 className="cursor-pointer transition-transform hover:scale-[1.02]"
                 onClick={() => onSelectNode(node.id)}
+                onMouseEnter={() => setHoveredNodeId(node.id)}
+                onMouseLeave={() => setHoveredNodeId(null)}
               >
                 <rect
                   x={pos.x}
@@ -511,7 +515,7 @@ export function GraphReview({
                       : isMatched
                       ? 'fill-[#0f192b] stroke-border hover:stroke-cyan-500/50'
                       : 'fill-[#0f192b]/40 stroke-border/30 opacity-40'
-                  } ${!related ? 'opacity-35' : 'opacity-100'}`}
+                  } ${!related ? 'opacity-25' : 'opacity-100'}`}
                 />
 
                 {/* Left vertical indicator */}

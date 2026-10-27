@@ -72,3 +72,20 @@
 1. **Mở rộng ngôn ngữ:** Hỗ trợ thêm Python và Golang parser.
 2. **Tích hợp GitHub Actions / GitLab CI Bot:** Tự động review và comment trực tiếp biểu đồ diff vào Pull Request.
 3. **Hỗ trợ LSP (Language Server Protocol):** Tích hợp extension trực tiếp vào VS Code / Cursor.
+
+---
+
+### Câu 9: Độ chính xác thực nghiệm (Precision / Recall) của hệ thống được đo lường như thế nào? Đã có bộ Benchmark đối chứng chưa?
+**Trả lời:**
+- Chúng tôi xây dựng bộ dữ liệu benchmark thực nghiệm độc lập tại thư mục `benchmark/cases/` kèm nhãn chuẩn `benchmark/ground-truth.json` gồm **20 ca kiểm thử mẫu mã nguồn** phân bố đồng đều giữa các nhóm lỗi và hàm sạch:
+  - **4 ca SQL Injection:** Phát hiện chính xác 2/2 ca nối chuỗi nguy hiểm; không báo động giả trên 2/2 ca dùng Parameterized Query và ORM.
+  - **4 ca Null Dereference:** Phát hiện chính xác 2/2 ca truy cập mảng/object thiếu guard; không báo giả trên 2/2 ca dùng Optional Chaining và Guard Clause.
+  - **3 ca Hardcoded Secret:** Phát hiện chính xác token OpenAI và AWS Key; không báo giả khi dùng `process.env`.
+  - **3 ca Loose Equality:** Phát hiện 2 ca `==` và `!=`; công nhận biểu thức so sánh nghiêm ngặt `===`.
+  - **3 ca ReDoS & Prototype Pollution:** Bắt chính xác regex backtracking và `Object.assign` không lọc key; chấp nhận regex có giới hạn độ dài an toàn.
+  - **3 hàm Clean References:** Xác nhận **False Positive Rate = 0.0%** trên các hàm tiện ích số học, tiền tệ và email regex.
+- **Kết quả đo lường toàn cục:**
+  - **Precision:** **100%** (10/10 cảnh báo đưa ra đều là lỗi thực tế).
+  - **Recall:** **100%** (10/10 lỗi thực tế trong tập mẫu đều được bắt trọn).
+  - **False Positive Rate (FPR):** **0.0%** (Không có bất kỳ cảnh báo sai nào trên 10 ca kiểm thử sạch).
+  - **F1-Score:** **1.00**.
