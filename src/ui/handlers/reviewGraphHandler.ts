@@ -1,18 +1,17 @@
 /**
- * Review & Graph Slash Commands Handler (100% CLI Mind Map)
+ * Review & Graph Slash Commands Handler
  * 
- * Implements the 100% CLI workflow:
- * 1. CLI is the sole work environment where user runs review and gets instant findings.
- * 2. `/graph` (or `/Graph`) transitions to a dedicated CLI frame view showing the
- *    mind map of project architecture and detailed error annotations below.
- * 3. 100% CLI — zero external web server or browser dependencies.
+ * Implements the CLI-first workflow:
+ * 1. CLI is the primary work environment where user runs review and gets instant findings.
+ * 2. `/graph` (or `/Graph`) opens or reuses the local Code Reviewer by Graph UI on the web,
+ *    binding directly to the current CLI session's review results without re-running AI.
  */
 import { resolve, basename } from 'path'
 import { execSync } from 'child_process'
 import { reviewProject, getCurrentReport, setCurrentReport } from '../../review/engine.js'
 import { scanProject } from '../../review/scanner.js'
 import { buildAstGraph } from '../../review/ast.js'
-import type { ReviewReport } from '../../review/types.js'
+import { getOrStartCliWebServer, openBrowser } from '../../web/cliWebServer.js'
 
 export async function handleReviewCommand(
   rawInput: string,
@@ -69,7 +68,7 @@ export async function handleReviewCommand(
       findingsList,
       '',
       '---',
-      '💡 **Xem sơ đồ tư duy:** Nhập **/graph** (hoặc **/Graph**) để chuyển sang giao diện khung xem sơ đồ tư duy (mind map) và chú thích lỗi trong CLI!',
+      '💡 **Xem trực quan:** Nhập **/graph** (hoặc **/Graph**) để mở giao diện đồ thị tương tác của lần review này!',
     ].join('\n')
 
     report(summary)
@@ -84,7 +83,6 @@ export async function handleGraphCommand(
   cwd: string,
   report: (content: string) => void,
   setNotice: (text: string | null) => void,
-  onOpenGraphView?: (rep: ReviewReport) => void,
 ): Promise<void> {
   try {
     let rep = getCurrentReport()
@@ -96,7 +94,7 @@ export async function handleGraphCommand(
         'CLI là nơi làm việc chính. Hãy yêu cầu phân tích mã nguồn trước bằng lệnh:',
         '👉 `/review`',
         '',
-        'Sau khi CLI phân tích xong, bạn chỉ cần nhập `/graph` để xem sơ đồ tư duy (mind map) trong giao diện khung CLI!',
+        'Sau khi CLI phân tích xong, bạn chỉ cần nhập `/graph` để mở đồ thị trực quan!',
       ].join('\n'))
       return
     }
@@ -127,26 +125,33 @@ export async function handleGraphCommand(
       if (curRev !== rep.revision || dirty) isOutdated = true
     } catch { /* not git repository */ }
 
-    // 3. Chuyển sang giao diện khung sơ đồ tư duy 100% CLI
-    if (onOpenGraphView) {
-      onOpenGraphView(rep)
-    }
+    rep.isOutdated = isOutdated
+    setCurrentReport(rep)
+
+    // 3. Khởi động hoặc tái sử dụng Web Server localhost
+    setNotice('Đang khởi động giao diện Code Reviewer by Graph...')
+    const { url } = await getOrStartCliWebServer(cwd)
+    openBrowser(url)
 
     const outdatedNotice = isOutdated
       ? '\n> ⚠ **Lưu ý:** Mã nguồn dự án đã có thay đổi so với thời điểm review này. Bạn có thể gõ `/review` để quét lại mã mới nhất.\n'
       : ''
 
+    const cleanDisplayUrl = url.split('#')[0]
+
     report([
-      '🧠 **Sơ đồ tư duy kiến trúc mã nguồn (Mind Map - 100% CLI)**',
+      '📊 **Code Reviewer by Graph**',
       '',
-      `Đã chuyển sang giao diện khung xem sơ đồ tư duy cho **${rep.projectName}** (Phiên bản: \`${rep.revision}\`):`,
-      `- Đồ thị kiến trúc: **${rep.nodes.length} nodes**, **${rep.edges.length} edges**`,
-      `- Ghi nhận: **${rep.findings.length} vấn đề** (có chú thích chi tiết cho từng file & ngôn ngữ bên dưới sơ đồ)`,
+      `Đã mở giao diện trực quan cho dự án **${rep.projectName}** (Phiên bản: \`${rep.revision}\`):`,
+      `👉 **[${cleanDisplayUrl}](${url})**`,
+      '',
+      `- Đồ thị hiển thị: **${rep.nodes.length} nodes**, **${rep.edges.length} edges**`,
+      `- Đã gắn: **${rep.findings.length} vấn đề** vào đúng file/hàm/dòng mã`,
       outdatedNotice,
-      '*(Dùng **↑/↓** hoặc **PgUp/PgDn** để cuộn sơ đồ tư duy. Nhấn **Esc** hoặc **q** để trở lại màn hình trò chuyện)*',
+      '*(Đường dẫn đã được tự động mở trong trình duyệt. Bạn có thể nhấp lại link trên hoặc tiếp tục làm việc trong CLI)*',
     ].filter(Boolean).join('\n'))
   } catch (err: unknown) {
-    report(`❌ Không thể mở sơ đồ tư duy Mind Map: ${err instanceof Error ? err.message : String(err)}`)
+    report(`❌ Không thể mở Code Reviewer by Graph: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
     setNotice(null)
   }

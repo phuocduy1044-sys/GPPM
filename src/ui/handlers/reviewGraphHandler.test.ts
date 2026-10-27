@@ -59,24 +59,18 @@ describe('reviewGraphHandler', () => {
     expect(current?.findings.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('runs /graph with existing report, transitions to CLI mind map view without web server', async () => {
+  it('runs /graph with existing report, starts/reuses server and prints clickable link', async () => {
     const reports: string[] = []
     const reportFn = (c: string) => reports.push(c)
     const noticeFn = vi.fn()
-    let openedReport: any = null
-    const openGraphFn = (rep: any) => {
-      openedReport = rep
-    }
 
-    await handleGraphCommand(demoRoot, reportFn, noticeFn, openGraphFn)
+    await handleGraphCommand(demoRoot, reportFn, noticeFn)
 
     expect(reports.length).toBe(1)
-    expect(reports[0]).toContain('Sơ đồ tư duy kiến trúc mã nguồn')
-    expect(reports[0]).toContain('100% CLI')
+    expect(reports[0]).toContain('Code Reviewer by Graph')
+    expect(reports[0]).toContain('http://')
     expect(reports[0]).toContain('demo-project')
     expect(reports[0]).toContain('nodes')
     expect(reports[0]).toContain('edges')
-    expect(openedReport).toBeDefined()
-    expect(openedReport.projectName).toBe('demo-project')
   })
 })

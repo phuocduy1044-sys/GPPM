@@ -872,13 +872,7 @@ export function useKeyboard(opts: KeyboardOptions) {
         } else if (trimmed.toLowerCase() === '/graph' || trimmed.toLowerCase().startsWith('/graph ')) {
           setNotice(null)
           import('../handlers/reviewGraphHandler.js')
-            .then(({ handleGraphCommand }) =>
-              handleGraphCommand(process.cwd(), report, setNotice, (rep) => {
-                if (setGraphReport) setGraphReport(rep)
-                setCursor(() => 0)
-                setState('graph')
-              }),
-            )
+            .then(({ handleGraphCommand }) => handleGraphCommand(process.cwd(), report, setNotice))
             .catch((err) => report(`❌ ${err instanceof Error ? err.message : String(err)}`))
         } else if (trimmed === '/export' || trimmed.startsWith('/export ')) {
           if (!messages.length) setNotice('nothing to export yet')
