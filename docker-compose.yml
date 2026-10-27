@@ -1,0 +1,12 @@
+services:
+  viecodie:
+    build: .
+    image: viecodie-agent:latest
+    container_name: viecodie-agent
+    ports:
+      - "4747:4747"
+      - "5173:5173"
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    command: ["graph"]

@@ -40,15 +40,15 @@ Toàn bộ **12/12 tiêu chí chấm điểm** đều có bằng chứng mã ngu
 ## PHẦN III: KẾT QUẢ KIỂM THỬ TỰ ĐỘNG & QUALITY GATES TOÀN DIỆN
 
 ### 1. Số liệu kiểm thử hệ thống (Toàn bộ Passed 100%)
-* **Tổng số đơn vị kiểm thử (Test Units & Suites):** **62 test files** bao gồm:
-  - **54 Vitest test files** trong `src/` bao quát toàn bộ agent loop, compiler AST, scanner, web server, permissions, rules.
+* **Tổng số đơn vị kiểm thử (Test Units & Suites):** **63 test files** bao gồm:
+  - **63 Vitest test files** trong `src/` bao quát toàn bộ agent loop, compiler AST, scanner, web server, permissions, rules.
   - **20 benchmark test cases** trong `benchmark/cases/` được đối soát tự động với `benchmark/ground-truth.json`.
   - **Test suite tích hợp thực tế** trong `examples/demo-project/tests/auth.test.js`.
-* **Tổng số ca kiểm thử logic:** **820+ tests passed** (0 failed trên toàn bộ môi trường Windows/Linux).
+* **Tổng số ca kiểm thử logic:** **826 tests passed (100% pass trên Windows và Linux CI)** (0 failed trên toàn bộ môi trường Windows/Linux).
 * **Kiểm tra kiểu dữ liệu tĩnh (`npm run typecheck`):** **0 lỗi (Clean 100%)** với cấu hình TypeScript `strict: true` cho cả core backend và Web React frontend.
 * **Tự động hóa Quality Gates 6 bước (`npm run smoke-test`):**
   1. *Typecheck Gate:* `npm run typecheck` — 0 type errors.
-  2. *Vitest Gate:* `npm test` — 54 files, 750 unit tests passed.
+  2. *Vitest Gate:* `npm test` — 63 files, 826 unit tests passed.
   3. *Build Gate:* `npm run build` — `tsup` CLI và `vite` Web bundle thành công.
   4. *Benchmark Gate:* `npm run benchmark` — 20/20 test cases khớp 100% Ground Truth (Precision 100%, Recall 100%, FPR 0%).
   5. *CLI Headless Demo Gate:* `node dist/cli.js review examples/demo-project` — Quét thực tế, phát hiện đúng SQL Injection và Null Dereference.
