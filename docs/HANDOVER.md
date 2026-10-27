@@ -2,7 +2,7 @@
 **Hội thi:** Tin học Trẻ / Sản phẩm Sáng tạo GPPM 2026 — Bảng 3  
 **Dự án:** VIECODIE — AI Code Reviewer by Graph  
 **Phiên bản phát hành:** `v3.13.1`  
-**Nhánh Git:** `ai2` (Worktree: `C:\GPPM_Viecodie\AI2`)  
+**Nhánh Git:** `ai1` & `main`  
 **Kho mã nguồn chính thức:** [`https://github.com/phuocduy1044-sys/GPPM.git`](https://github.com/phuocduy1044-sys/GPPM.git)  
 **Gói xuất bản npm:** [`@demoapplication/viecodie`](https://www.npmjs.com/package/@demoapplication/viecodie)
 
@@ -44,7 +44,7 @@ VIECODIE là hệ thống **AI Code Reviewer chuyên sâu đầu tiên kết h�
 
 ### Phần II: Chất lượng kỹ thuật & Trải nghiệm sản phẩm (5.0 / 5.0 Điểm)
 - [x] **Tiêu chí 8 (Tính nguyên gốc kỹ thuật - 1.0đ):** Tự xây dựng Call Graph AST, 4 nhóm rule, Unified Diff patch, Runner sandbox, minh bạch kế thừa [docs/ORIGIN.md](./docs/ORIGIN.md) và [CHANGES_GPPM.md](./CHANGES_GPPM.md).
-- [x] **Tiêu chí 9 (Mức độ hoàn thiện sản phẩm - 1.0đ):** Hai luồng hoạt động 100% (CLI độc lập xuất JSON + Web Code Reviewer by Graph áp dụng patch & test). Toàn bộ 54 test files / 750 tests pass sạch sẽ.
+- [x] **Tiêu chí 9 (Mức độ hoàn thiện sản phẩm - 1.0đ):** Hai luồng hoạt động 100% (CLI độc lập xuất JSON + Web Code Reviewer by Graph áp dụng patch & test). Toàn bộ 63 test files / 827 tests pass sạch sẽ.
 - [x] **Tiêu chí 10 (Trải nghiệm UI/UX - 1.0đ):** SVG Canvas mượt mà, highlight Caller/Callee rõ ràng, Test Drawer hiển thị từng ca test con, hỗ trợ Dark Mode tối ưu.
 - [x] **Tiêu chí 11 (Tính bền vững & Kiến trúc - 1.0đ):** Tài liệu kiến trúc [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) với sơ đồ Mermaid chi tiết luồng bảo vệ 6 tầng và RunnerService.
 - [x] **Tiêu chí 12 (Trình bày & Thuyết phục - 1.0đ):** Kịch bản thuyết trình 7 bước [docs/DEMO.md](./docs/DEMO.md), bộ 9 câu hỏi phản biện [docs/QA.md](./docs/QA.md), và báo cáo thực nghiệm [benchmark/BENCHMARK_REPORT.md](./benchmark/BENCHMARK_REPORT.md) đạt Precision 100%, Recall 100%, FPR 0%.
@@ -58,7 +58,7 @@ VIECODIE là hệ thống **AI Code Reviewer chuyên sâu đầu tiên kết h�
   VIECODIE QUALITY GATES & BENCHMARK VERIFICATION RESULT
 ========================================================================
   TypeScript Compilation:       0 errors (tsc root + web clean)
-  Automated Vitest Suite:       54 / 54 test files passed (750 passed, 0 failed)
+  Automated Vitest Suite:       63 / 63 test files passed (827 passed, 0 failed)
   Benchmark Dataset (20 cases):
     - True Positives (TP):      10 / 10
     - True Negatives (TN):      10 / 10
@@ -91,4 +91,4 @@ node dist/cli.js graph
 ---
 
 ## 6. Xác nhận Bàn giao
-Biên bản này xác nhận toàn bộ mã nguồn, tài liệu hướng dẫn, kịch bản thuyết trình và artifact kiểm thử của nhóm B (AI2) đã hoàn tất 100%, sẵn sàng để nhóm A (AI1) merge và đồng bộ phát hành bản chính thức.
+Biên bản này xác nhận toàn bộ mã nguồn, tài liệu hướng dẫn, kịch bản thuyết trình và artifact kiểm thử của dự án VIECODIE đã hoàn tất 100%, sẵn sàng cho vòng thi và đánh giá của Ban Giám khảo.
