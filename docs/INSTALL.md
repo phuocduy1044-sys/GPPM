@@ -4,24 +4,41 @@
 
 ---
 
-## 1. Cài đặt tự động trên Windows (Khuyên dùng)
+## 1. Cài đặt trực tiếp từ NPM (Nhanh nhất & Khuyên dùng)
+Gói chính thức đã phát hành trên NPM Registry tại [npmjs.com/package/@demoapplication/viecodie](https://www.npmjs.com/package/@demoapplication/viecodie):
 
-Cách nhanh nhất và đơn giản nhất trên hệ điều hành Windows là sử dụng trình cài đặt tự động [**`INSTALL.BAT`**](../INSTALL.BAT):
+```bash
+# Cài đặt gói toàn cục
+npm install -g @demoapplication/viecodie
 
+# Cập nhật lên phiên bản mới nhất
+npm install -g @demoapplication/viecodie@latest
+
+# Khởi động công cụ
+viecodie
+```
+
+---
+
+## 2. Cài đặt tự động bằng Script
+
+### Trên Windows
+Sử dụng trình cài đặt tự động [**`INSTALL.BAT`**](../INSTALL.BAT):
 1. Tải hoặc sao chép thư mục mã nguồn về máy.
 2. Nhấp đúp chuột vào file **`INSTALL.BAT`** (hoặc mở Command Prompt chạy `INSTALL.BAT`).
 3. Trình cài đặt sẽ tự động:
    - Kiểm tra và cài đặt Node.js LTS (nếu máy chưa có).
    - Tự động biên dịch mã nguồn và đóng gói lệnh `viecodie` toàn cục vào tài khoản Windows.
-   - Cung cấp Menu cấu hình AI trực quan với 4 lựa chọn:
-     * `[1] Chế độ Offline`: Tự cài Ollama và tải model `qwen2.5-coder:7b` hoặc `deepseek-r1:7b`.
-     * `[2] Chế độ Online`: Thiết lập DeepSeek Cloud API (siêu nhẹ, không cần tải Ollama).
-     * `[3] Chế độ Song song (Dual Mode)`: Thiết lập cả hai để chuyển đổi linh hoạt.
-     * `[4] Bỏ qua`: Giữ nguyên cấu hình cũ.
+   - Cung cấp Menu cấu hình AI trực quan với các chế độ Online (DeepSeek) / Offline (Ollama).
+
+### Trên Linux / macOS
+```bash
+chmod +x ./install.sh && ./install.sh
+```
 
 ---
 
-## 2. Cài đặt thủ công từ mã nguồn (Mọi hệ điều hành)
+## 3. Cài đặt thủ công từ mã nguồn (Mọi hệ điều hành)
 
 ### Bước 1: Yêu cầu tiên quyết
 - **Node.js:** Phiên bản `>= 22.0.0`
@@ -48,7 +65,7 @@ Sau bước này, lệnh `viecodie` đã sẵn sàng sử dụng ở bất kỳ 
 
 ---
 
-## 3. Cấu hình Nhà cung cấp AI (Provider Configuration)
+## 4. Cấu hình Nhà cung cấp AI (Provider Configuration)
 
 ### Lựa chọn A: Sử dụng DeepSeek Online API (Khuyên dùng)
 1. Đăng ký tài khoản và tạo API Key tại [platform.deepseek.com](https://platform.deepseek.com).
@@ -75,13 +92,17 @@ Sau bước này, lệnh `viecodie` đã sẵn sàng sử dụng ở bất kỳ 
 
 ---
 
-## 4. Kiểm tra cài đặt (Health Check)
-Chạy lệnh kiểm tra môi trường:
-```bash
-viecodie --version
-viecodie --help
-```
-Mở giao diện Web:
-```bash
-viecodie web
-```
+## 5. Luồng sử dụng (CLI-First Workflow)
+1. Khởi động CLI:
+   ```bash
+   viecodie
+   ```
+2. Phân tích mã nguồn:
+   ```text
+   /review <đường_dẫn>
+   ```
+   *(Ví dụ: `/review examples/demo-project` hoặc `/review .`)*
+3. Mở giao diện đồ thị Web của đúng kết quả vừa phân tích:
+   ```text
+   /graph
+   ```

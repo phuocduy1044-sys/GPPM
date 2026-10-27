@@ -1,5 +1,5 @@
 {
-  "name": "viecodie-agent",
+  "name": "@demoapplication/viecodie",
   "version": "3.13.1",
   "description": "Local AI coding agent for your terminal — an open-source, offline alternative to Claude Code, Cursor, and GitHub Copilot, powered by Ollama. Private by default, free forever.",
   "type": "module",
@@ -30,11 +30,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maruakshay/viecodie-cli.git"
+    "url": "git+https://github.com/phuocduy1044-sys/GPPM.git"
   },
-  "homepage": "https://github.com/maruakshay/viecodie-cli#readme",
+  "homepage": "https://github.com/phuocduy1044-sys/GPPM#readme",
   "bugs": {
-    "url": "https://github.com/maruakshay/viecodie-cli/issues"
+    "url": "https://github.com/phuocduy1044-sys/GPPM/issues"
   },
   "keywords": [
     "cli",
@@ -78,9 +78,9 @@
     "react": "^18.3.0",
     "string-width": "^7.2.0",
     "sweetalert2": "^11.26.25",
+    "typescript": "^5.7.0",
     "wrap-ansi": "^9.0.2",
-    "zod": "^3.23.0",
-    "typescript": "^5.7.0"
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@radix-ui/react-collapsible": "^1.1.20",
