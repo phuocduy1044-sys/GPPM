@@ -253,3 +253,65 @@ export async function runVerifyCli(argv: string[]): Promise<number> {
   if (result.status === 'failed') return 2;
   return 3;
 }
+
+
+export async function runGraphCli(argv: string[]): Promise<number> {
+  const { startWeb } = await import('../web/server.js');
+  const { spawn } = await import('child_process');
+
+  const portIdx = argv.indexOf('--port');
+  const port = portIdx !== -1 ? Number(argv[portIdx + 1]) : 4747;
+  const noOpen = argv.includes('--no-open');
+
+  let report = getCurrentReport();
+  let targetPath: string | undefined;
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('-')) {
+      if (['--port', '--output-format', '--mode'].includes(a)) i++;
+      continue;
+    }
+    if (a !== 'graph') {
+      targetPath = a;
+      break;
+    }
+  }
+
+  let projectRoot = targetPath ? resolve(targetPath) : (report?.projectRoot ? resolve(report.projectRoot) : process.cwd());
+
+  if (!report || (targetPath && resolve(report.projectRoot) !== projectRoot)) {
+    console.log(`Đang phân tích mã nguồn cho ${projectRoot}...`);
+    report = await reviewProject({ projectRoot, mode: 'rules' });
+  }
+
+  let web;
+  try {
+    web = await startWeb({ port, cwd: projectRoot });
+  } catch (err) {
+    console.error(`viecodie: Không thể khởi chạy web server: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+
+  console.log(`\n  \x1b[32m\x1b[1mCode Reviewer by Graph\x1b[0m đang chạy tại: ${web.url}`);
+  console.log(`  Báo cáo review cho dự án ${report.projectName} (revision: ${report.revision}) đã sẵn sàng.`);
+  console.log(`  Nhấn Ctrl+C để dừng server.\n`);
+
+  if (!noOpen) {
+    const [cmd, ...openArgs] = process.platform === 'win32'
+      ? ['cmd', '/c', 'start', '""', web.url]
+      : process.platform === 'darwin'
+        ? ['open', web.url]
+        : ['xdg-open', web.url];
+    try {
+      spawn(cmd, openArgs, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+    } catch { /* ignore */ }
+  }
+
+  return new Promise<number>((resolvePromise) => {
+    process.once('SIGINT', async () => {
+      await web.close();
+      resolvePromise(0);
+    });
+  });
+}
