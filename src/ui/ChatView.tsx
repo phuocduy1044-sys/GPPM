@@ -57,20 +57,26 @@ export const ChatView = memo(function ChatView({
   const [viewportRows, setViewportRows] = useState(10)
 
   useEffect(() => {
+    let newContent = contentRows
+    let newViewport = viewportRows
     if (innerRef.current) {
-      const { height } = measureElement(innerRef.current)
-      if (height !== contentRows) setContentRows(height)
+      newContent = measureElement(innerRef.current).height
     }
     if (viewRef.current) {
-      const { height } = measureElement(viewRef.current)
-      if (height > 0 && height !== viewportRows) setViewportRows(height)
+      const h = measureElement(viewRef.current).height
+      if (h > 0) newViewport = h
     }
-  }, [messages, streaming, streamingContent, activeToolUses, activeToolResults, error, pendingPermission, logEpoch])
-
-  // Publish geometry for the wheel/pageup handlers, which run outside the tree.
-  useEffect(() => {
-    setScrollMetrics(contentRows, viewportRows)
-  }, [contentRows, viewportRows])
+    setScrollMetrics(newContent, newViewport)
+    // Only trigger a React re-render when the view is scrolled up (!scroll.stick)
+    // and the measured metrics actually changed.
+    // When scroll.stick is true, bottom-alignment is handled natively by flexbox
+    // (justifyContent="flex-end", marginTop=0), so calling setState would force
+    // an unnecessary second render pass right after the initial frame paint!
+    if (!scroll.stick) {
+      if (newContent !== contentRows) setContentRows(newContent)
+      if (newViewport !== viewportRows) setViewportRows(newViewport)
+    }
+  }, [messages, streaming, streamingContent, activeToolUses, activeToolResults, error, pendingPermission, logEpoch, scroll.stick])
 
   const maxTop = Math.max(0, contentRows - viewportRows)
   // A scrolled-up view keeps its row, clamped in case the content shrank since

@@ -1,7 +1,9 @@
-import { Box, Text } from 'ink'
+import { memo } from 'react'
+import { Box, Text, useStdout } from 'ink'
 import { COMMANDS, type Command } from './constants.js'
 import { customCommands } from '../commands/custom.js'
 import { C } from './theme.js'
+import { truncate } from './layout.js'
 
 export type { Command }
 
@@ -50,13 +52,21 @@ export function filteredCommands(filter: string): Command[] {
   return allCommands().filter((c) => c.name.startsWith(filter))
 }
 
-export function CommandPalette({ filter, cursor, maxRows = Infinity }: Props) {
+export const CommandPalette = memo(function CommandPalette({ filter, cursor, maxRows = 6 }: Props) {
   const filtered = filteredCommands(filter)
   if (filtered.length === 0) return null
+
+  const { stdout } = useStdout()
+  const cols = stdout?.columns ?? 80
 
   // Width from the whole list, not the window, so the columns hold still as it scrolls.
   const nameWidth = Math.max(...filtered.map((c) => c.name.length))
   const { start, end } = paletteWindow(filtered.length, cursor, maxRows)
+
+  // Reserve columns for padding (4), border (2), marker (2), gap (2), origin (8 if present)
+  const hasCustomOrigin = filtered.some((c) => c.origin && c.origin !== 'builtin')
+  const originWidth = hasCustomOrigin ? 10 : 0
+  const maxDescWidth = Math.max(10, cols - nameWidth - originWidth - 12)
 
   return (
     <Box
@@ -65,28 +75,33 @@ export function CommandPalette({ filter, cursor, maxRows = Infinity }: Props) {
       borderStyle="round"
       borderColor={C.gray}
       paddingX={1}
+      flexShrink={0}
     >
       {filtered.slice(start, end).map((cmd, j) => {
         const i = start + j
         const active = i === cursor
         return (
-          <Box key={cmd.name} gap={2}>
-            <Text bold={active} color={active ? C.blue : undefined} dimColor={!active}>
+          <Box key={cmd.name} gap={2} flexShrink={0}>
+            <Text bold={active} color={active ? C.blue : undefined} dimColor={!active} wrap="truncate">
               {active ? '❯ ' : '  '}{cmd.name.padEnd(nameWidth)}
             </Text>
-            <Text dimColor>{cmd.description}</Text>
+            <Text dimColor wrap="truncate">{truncate(cmd.description, maxDescWidth)}</Text>
             {cmd.origin && cmd.origin !== 'builtin' && (
-              <Text color={C.cyan} dimColor>{cmd.origin}</Text>
+              <Text color={C.cyan} dimColor wrap="truncate">{cmd.origin}</Text>
             )}
           </Box>
         )
       })}
-      <Box marginTop={0}>
-        <Text dimColor>
-          ↑↓ navigate   tab/enter autocomplete   esc dismiss
-          {end - start < filtered.length ? `   ${start + 1}–${end} of ${filtered.length}` : ''}
+      <Box marginTop={0} flexShrink={0}>
+        <Text dimColor wrap="truncate">
+          {truncate(
+            `↑↓ navigate   tab/enter autocomplete   esc dismiss${
+              end - start < filtered.length ? `   ${start + 1}–${end} of ${filtered.length}` : ''
+            }`,
+            Math.max(10, cols - 6),
+          )}
         </Text>
       </Box>
     </Box>
   )
-}
+})
