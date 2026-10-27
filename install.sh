@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 # viecodie installer / updater
 #
-#   curl -fsSL https://raw.githubusercontent.com/maruakshay/viecodie-cli/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/phuocduy1044-sys/GPPM/main/install.sh | sh
 #
 # Re-run any time to update to the latest release.
 set -eu
 
-PKG="viecodie-agent"
+PKG="@demoapplication/viecodie"
 GREEN="$(printf '\033[32m')"; YELLOW="$(printf '\033[33m')"; RED="$(printf '\033[31m')"; DIM="$(printf '\033[2m')"; RESET="$(printf '\033[0m')"
 
 info()  { printf '%s\n' "${GREEN}==>${RESET} $*"; }

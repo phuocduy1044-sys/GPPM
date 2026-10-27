@@ -141,6 +141,28 @@ curl -fsSL https://raw.githubusercontent.com/phuocduy1044-sys/GPPM/main/install.
 
 ## 💻 Hướng Dẫn Sử Dụng
 
+### 🌟 Luồng sử dụng chuẩn khép kín (CLI-First Workflow)
+Hệ thống hoạt động theo quy trình khép kín: **CLI là trung tâm thao tác ➔ Đồ thị Web trực quan hóa kết quả**:
+
+```
+Terminal (/review <path>) ──▶ Quét AST & Call Graph ──▶ Gõ /graph ──▶ Web Graph Reviewer ──▶ Apply Patch & Test
+```
+
+1. **Khởi động CLI:**
+   ```bash
+   viecodie
+   ```
+2. **Phân tích mã nguồn:** Trong CLI, gõ:
+   ```text
+   /review examples/demo-project
+   ```
+   *(hoặc `/review .` để phân tích thư mục hiện hành, hoặc kèm yêu cầu: `/review . kiểm tra bảo mật SQL injection`)*
+3. **Mở Web Graph Review:** Sau khi CLI in xong báo cáo phân tích, gõ:
+   ```text
+   /graph
+   ```
+   Hệ thống tự động khởi chạy Web Server và mở trình duyệt hiển thị đúng đồ thị hàm tương tác của kết quả vừa phân tích. Bấm **Áp dụng bản sửa (Apply Patch)** trong tab Fix và bấm **Chạy lại kiểm thử** để xác nhận kết quả chuyển sang màu xanh (Passed).
+
 ### 1. Luồng Lệnh CLI Độc Lập (Headless Mode — Phục vụ CI/CD)
 ```bash
 # Review mã nguồn dự án mục tiêu bằng rules tĩnh (siêu nhanh, offline 100%)

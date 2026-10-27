@@ -1,5 +1,5 @@
 {
-  "name": "viecodie-agent",
+  "name": "@demoapplication/viecodie",
   "version": "3.13.1",
   "description": "Local AI coding agent for your terminal — an open-source, offline alternative to Claude Code, Cursor, and GitHub Copilot, powered by Ollama. Private by default, free forever.",
   "type": "module",
@@ -82,9 +82,9 @@
     "react": "^18.3.0",
     "string-width": "^7.2.0",
     "sweetalert2": "^11.26.25",
+    "typescript": "^5.7.0",
     "wrap-ansi": "^9.0.2",
-    "zod": "^3.23.0",
-    "typescript": "^5.7.0"
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@radix-ui/react-collapsible": "^1.1.20",

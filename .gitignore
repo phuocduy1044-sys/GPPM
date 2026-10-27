@@ -6,3 +6,5 @@
 .viecodie/
 *.tgz
 .vitest-*
+.env*
+.npmrc

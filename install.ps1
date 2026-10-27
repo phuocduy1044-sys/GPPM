@@ -1,11 +1,11 @@
 #!/usr/bin/env pwsh
 # viecodie installer / updater (Windows)
 #
-#   irm https://raw.githubusercontent.com/maruakshay/viecodie-cli/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/phuocduy1044-sys/GPPM/main/install.ps1 | iex
 #
 # Re-run any time to update to the latest release.
 $ErrorActionPreference = 'Stop'
-$Pkg = 'viecodie-agent'
+$Pkg = '@demoapplication/viecodie'
 
 function Info($m) { Write-Host "==> $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "!! $m"  -ForegroundColor Yellow }

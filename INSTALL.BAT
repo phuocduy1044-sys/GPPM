@@ -13,7 +13,7 @@ cd /d "%VIE_SOURCE%"
 if errorlevel 1 goto failed
 if not exist "package.json" goto missing_source
 if not exist "src\cli.tsx" goto missing_source
-node -e "const p=require('./package.json');process.exit(p.name==='viecodie-agent'?0:1)" >nul 2>nul
+node -e "const p=require('./package.json');process.exit((p.name==='@demoapplication/viecodie'||p.name==='viecodie-agent')?0:1)" >nul 2>nul
 
 echo.
 echo ============================================================
@@ -41,7 +41,7 @@ set "VIE_STEP=Check Node.js, npm and source"
 node --version
 call npm.cmd --version
 if errorlevel 1 goto failed
-node -e "const p=require('./package.json');process.exit(p.name==='viecodie-agent'?0:1)"
+node -e "const p=require('./package.json');process.exit((p.name==='@demoapplication/viecodie'||p.name==='viecodie-agent')?0:1)"
 if errorlevel 1 goto missing_source
 if not exist "package-lock.json" goto missing_source
 
