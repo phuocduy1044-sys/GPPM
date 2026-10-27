@@ -37,10 +37,21 @@ export function createPatch(
 
     // Apply remediation heuristics based on getFindingPatch or ruleId
     const patchPreview = getFindingPatch(projectRoot, finding);
-    if (patchPreview && fileEntry.patched.includes(patchPreview.original)) {
-      fileEntry.patched = fileEntry.patched.replace(patchPreview.original, patchPreview.replacement);
+    if (patchPreview) {
+      if (fileEntry.patched.includes(patchPreview.replacement)) {
+        // Already patched in this file by a previous finding
+        continue;
+      }
+      if (fileEntry.patched.includes(patchPreview.original)) {
+        fileEntry.patched = fileEntry.patched.replace(patchPreview.original, patchPreview.replacement);
+        continue;
+      }
     }
+
     if (finding.ruleId === 'SEC_SQL_INJECTION') {
+      if (fileEntry.patched.includes('querySafe(')) {
+        continue;
+      }
       // Replace queryUnsafe template literal with querySafe parameterized call
       if (fileEntry.patched.includes('queryUnsafe')) {
         fileEntry.patched = fileEntry.patched.replace(
@@ -49,6 +60,9 @@ export function createPatch(
         );
       }
     } else if (finding.ruleId === 'BUG_POTENTIAL_NULL_DEREFERENCE') {
+      if (fileEntry.patched.includes('!record') || fileEntry.patched.includes('record == null')) {
+        continue;
+      }
       if (fileEntry.patched.includes('if (record.passwordHash === hashPassword(password))')) {
         fileEntry.patched = fileEntry.patched.replace(
           'if (record.passwordHash === hashPassword(password))',
@@ -278,6 +292,9 @@ export function getFindingPatch(
       }
     }
   } else if (finding.ruleId === 'BUG_POTENTIAL_NULL_DEREFERENCE') {
+    if (content.includes('!record') || content.includes('record == null')) {
+      return null;
+    }
     if (content.includes('if (record.passwordHash === hashPassword(password))')) {
       originalSnippet = 'if (record.passwordHash === hashPassword(password))';
       replacementSnippet = 'if (!record) return { success: false, reason: "User not found" };\n  if (record.passwordHash === hashPassword(password))';

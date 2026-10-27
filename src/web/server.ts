@@ -388,17 +388,21 @@ export function createWebHandler(agent: WebAgent, token: string) {
           const patch = createPatch(agent.cwd, current.findings, current.revision, findingIds)
           return send(res, 200, { patch })
         }
-                        case '/api/review/apply': {
+        case '/api/review/apply': {
           const { createPatch } = await import('../review/patch.js')
           const { getCurrentReport } = await import('../review/engine.js')
           const { applyPatchWithSnapshot } = await import('../review/applyService.js')
           const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
-          const current = getCurrentReport(reqSessionId || undefined)
+          const reqProjectPath = str(body.projectPath) || str(url.searchParams.get('path')) || str(url.searchParams.get('project'))
+          let current = getCurrentReport(reqSessionId || undefined, reqProjectPath || undefined)
+          if (!current && !reqSessionId) {
+            current = getCurrentReport(undefined, agent.cwd)
+          }
           if (!current) return send(res, 404, { success: false, status: 'failed', error: 'Không tìm thấy báo cáo review' })
           
           const patchId = str(body.patchId)
           const reviewId = str(body.reviewId)
-          const baseRevision = str(body.baseRevision) || current.revision
+          const baseRevision = current.revision
           const confirm = body.confirm !== undefined ? Boolean(body.confirm) : true
 
           if (!confirm) {
@@ -409,34 +413,47 @@ export function createWebHandler(agent: WebAgent, token: string) {
             return send(res, 400, { success: false, status: 'stale', error: `reviewId (${reviewId}) không khớp với phiên hiện tại (${current.reviewId})` })
           }
 
-          const reqProjectPath = str(body.projectPath)
-          if (reqProjectPath) {
+          if (reqProjectPath && current.projectId) {
             const { computeProjectId } = await import('../review/engine.js')
-            if (current.projectId && computeProjectId(reqProjectPath) !== current.projectId) {
+            if (computeProjectId(reqProjectPath) !== current.projectId) {
               return send(res, 400, { success: false, status: 'stale', error: 'Báo cáo review không thuộc về dự án đích' })
             }
           }
 
-          const targetRoot = current.projectRoot || agent.cwd
-
-          // Lookup patch from report.patches record
-          let patch = (current.patches && patchId) ? current.patches[patchId] : undefined
-
+          const targetRoot = reqProjectPath || current.projectRoot || agent.cwd
+          const isApplyAll = Boolean(body.applyAll) || patchId === 'all'
           const findingId = str(body.findingId)
-          if (!patch) {
-            const targetFinding = current.findings.find(f => f.patchId === patchId || (findingId && f.id === findingId))
-            if (targetFinding && current.patches && targetFinding.patchId) {
-              patch = current.patches[targetFinding.patchId]
-            }
-          }
 
-          if (!patch) {
-            const fid = findingId || (patchId ? patchId.replace(/^patch-/, '') : undefined)
-            const findingIds = fid ? [fid] : (Array.isArray(body.findingIds) ? body.findingIds.filter((id): id is string => typeof id === 'string') : undefined)
-            if (!findingIds || findingIds.length === 0) {
-              return send(res, 400, { success: false, status: 'unsupported', error: 'Không tìm thấy bản vá khả dụng cho yêu cầu này.' })
+          let patch: import('../review/types.js').Patch | undefined
+
+          if (isApplyAll) {
+            const patchableFindings = current.findings.filter(f => f.canPatch || f.patchPreview || (current.patches && f.patchId && current.patches[f.patchId]))
+            const findingIds = patchableFindings.map(f => f.id)
+            if (findingIds.length === 0) {
+              return send(res, 400, { success: false, status: 'no_changes', error: 'Không có bản vá khả dụng nào để áp dụng.' })
             }
             patch = createPatch(targetRoot, current.findings, current.revision, findingIds)
+          } else {
+            // Lookup patch from report.patches record
+            if (patchId && current.patches) {
+              patch = current.patches[patchId]
+            }
+
+            if (!patch) {
+              const targetFinding = current.findings.find(f => f.patchId === patchId || (findingId && f.id === findingId))
+              if (targetFinding && current.patches && targetFinding.patchId) {
+                patch = current.patches[targetFinding.patchId]
+              }
+            }
+
+            if (!patch) {
+              const fid = findingId || (patchId ? patchId.replace(/^patch-/, '') : undefined)
+              const findingIds = fid ? [fid] : (Array.isArray(body.findingIds) ? body.findingIds.filter((id): id is string => typeof id === 'string') : undefined)
+              if (!findingIds || findingIds.length === 0) {
+                return send(res, 400, { success: false, status: 'unsupported', error: 'Không tìm thấy bản vá khả dụng cho yêu cầu này.' })
+              }
+              patch = createPatch(targetRoot, current.findings, current.revision, findingIds)
+            }
           }
 
           if (!patch || !patch.files || patch.files.length === 0) {
@@ -469,10 +486,14 @@ export function createWebHandler(agent: WebAgent, token: string) {
           const { undoApplyWithSnapshot } = await import('../review/applyService.js')
           const { getCurrentReport } = await import('../review/engine.js')
           const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
-          const current = getCurrentReport(reqSessionId || undefined)
+          const reqProjectPath = str(body.projectPath) || str(url.searchParams.get('path')) || str(url.searchParams.get('project'))
+          let current = getCurrentReport(reqSessionId || undefined, reqProjectPath || undefined)
+          if (!current && !reqSessionId) {
+            current = getCurrentReport(undefined, agent.cwd)
+          }
           if (!current) return send(res, 404, { success: false, status: 'failed', error: 'Không tìm thấy báo cáo review' })
 
-          const targetRoot = current.projectRoot || agent.cwd
+          const targetRoot = reqProjectPath || current.projectRoot || agent.cwd
           const applyRecordId = str(body.applyRecordId)
           const patchId = str(body.patchId)
           const confirm = body.confirm !== undefined ? Boolean(body.confirm) : true
@@ -544,14 +565,18 @@ export function createWebHandler(agent: WebAgent, token: string) {
             result,
           })
         }
-case '/api/review/verify': {
+        case '/api/review/verify': {
           const { runVerification } = await import('../review/verify.js')
           const { getCurrentReport, setCurrentReport } = await import('../review/engine.js')
           const reqSessionId = str(url.searchParams.get('session')) || str(req.headers['x-viecodie-session-id'])
-          const checkCommand = str(body.checkCommand) || 'npm test'
+          const reqProjectPath = str(body.projectPath) || str(url.searchParams.get('path')) || str(url.searchParams.get('project'))
+          const checkCommand = str(body.checkCommand) || str(body.command) || 'npm test'
           const confirm = body.confirm !== undefined ? Boolean(body.confirm) : true
-          const current = getCurrentReport(reqSessionId || undefined)
-          const targetRoot = current?.projectRoot || agent.cwd
+          let current = getCurrentReport(reqSessionId || undefined, reqProjectPath || undefined)
+          if (!current && !reqSessionId) {
+            current = getCurrentReport(undefined, agent.cwd)
+          }
+          const targetRoot = reqProjectPath || current?.projectRoot || agent.cwd
           const baseRevision = current?.revision || 'rev-current'
           const result = await runVerification({
             projectRoot: targetRoot,

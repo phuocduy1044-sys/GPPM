@@ -18,6 +18,7 @@ interface RightPanelProps {
   findings?: Finding[]
   testResult?: TestResult
   onApplyPatch?: (findingId: string) => Promise<void> | void
+  onApplyAllPatches?: () => Promise<void> | void
   onUndoPatch?: (findingId: string) => Promise<void> | void
   onAnalyzeFile?: (file: string) => void
   onRunTest?: () => Promise<void> | void
@@ -30,6 +31,7 @@ export function RightPanel({
   findings = [],
   testResult,
   onApplyPatch,
+  onApplyAllPatches,
   onUndoPatch,
   onAnalyzeFile,
   onRunTest,
@@ -51,9 +53,14 @@ export function RightPanel({
 
   const [activeTab, setActiveTab] = useState<'overview' | 'fix'>('overview')
   const [applying, setApplying] = useState(false)
+  const [applyingAll, setApplyingAll] = useState(false)
   const [appliedFindingIds, setAppliedFindingIds] = useState<Set<string>>(new Set())
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [verifying, setVerifying] = useState(false)
+
+  const openPatchableFindings = findings.filter(
+    (f) => (f.canPatch || f.patch) && f.status !== 'applied' && !appliedFindingIds.has(f.id)
+  )
 
   const [undoing, setUndoing] = useState(false)
   const handleUndo = async () => {
@@ -121,6 +128,19 @@ export function RightPanel({
       setErrorMessage(err instanceof Error ? err.message : 'Áp dụng bản vá thất bại')
     } finally {
       setApplying(false)
+    }
+  }
+
+  const handleApplyAll = async () => {
+    setApplyingAll(true)
+    setErrorMessage(null)
+    try {
+      await onApplyAllPatches?.()
+      setAppliedFindingIds(new Set(findings.map((f) => f.id)))
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Áp dụng tất cả bản vá thất bại')
+    } finally {
+      setApplyingAll(false)
     }
   }
 
@@ -465,6 +485,19 @@ export function RightPanel({
                           <IconCheck className="size-4 shrink-0" />
                           <span>Đã chỉnh sửa tệp gốc thành công!</span>
                         </div>
+                        {openPatchableFindings.length > 0 && onApplyAllPatches && (
+                          <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-300 font-sans">
+                            <span>Còn {openPatchableFindings.length} issue chưa vá.</span>
+                            <button
+                              type="button"
+                              disabled={applyingAll}
+                              onClick={handleApplyAll}
+                              className="font-bold underline hover:text-amber-200 cursor-pointer"
+                            >
+                              {applyingAll ? 'Đang vá...' : 'Vá tất cả ngay'}
+                            </button>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
@@ -496,15 +529,36 @@ export function RightPanel({
                         </div>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        disabled={applying}
-                        onClick={handleApply}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-lime-500/50 bg-lime-500/15 py-2 text-xs font-semibold text-lime-400 shadow-3d-1 transition-all hover:bg-lime-500/25 hover:border-lime-500 disabled:opacity-50"
-                      >
-                        <IconSparkles className="size-4" />
-                        <span>{applying ? 'Đang áp dụng bản sửa vào tệp...' : 'Áp dụng bản sửa (Apply Patch)'}</span>
-                      </button>
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          disabled={applying || applyingAll}
+                          onClick={handleApply}
+                          className="flex w-full items-center justify-center gap-2 rounded-lg border border-lime-500/50 bg-lime-500/15 py-2 text-xs font-semibold text-lime-400 shadow-3d-1 transition-all hover:bg-lime-500/25 hover:border-lime-500 disabled:opacity-50"
+                        >
+                          <IconSparkles className="size-4" />
+                          <span>{applying ? 'Đang áp dụng bản sửa vào tệp...' : 'Áp dụng bản sửa (Apply Patch)'}</span>
+                        </button>
+                        {openPatchableFindings.length > 1 && onApplyAllPatches && (
+                          <button
+                            type="button"
+                            disabled={applyingAll || applying}
+                            onClick={handleApplyAll}
+                            className="flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 py-1.5 text-xs font-semibold text-cyan-400 hover:bg-cyan-500/20 disabled:opacity-50 transition-all"
+                          >
+                            {applyingAll ? (
+                              <IconLoader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <IconSparkles className="size-3.5" />
+                            )}
+                            <span>
+                              {applyingAll
+                                ? 'Đang áp dụng toàn bộ bản sửa...'
+                                : `Áp dụng tất cả bản sửa (${openPatchableFindings.length} issues)`}
+                            </span>
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {/* LIVE VERIFICATION TEST FEEDBACK RIGHT UNDER BUTTON */}
@@ -532,6 +586,11 @@ export function RightPanel({
                         <pre className="max-h-36 overflow-auto rounded border border-border/30 bg-[#05080f] p-2 text-[10px] leading-relaxed text-foreground/85 whitespace-pre-wrap">
                           {testResult.logOutput}
                         </pre>
+                        {testResult.status === 'failed' && openPatchableFindings.length > 0 && (
+                          <div className="rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[10px] text-amber-300 font-sans">
+                            💡 Gợi ý: Dự án còn {openPatchableFindings.length} issue chưa vá. Hãy áp dụng nốt các bản vá còn lại rồi chạy lại kiểm thử để đạt 100% PASS.
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

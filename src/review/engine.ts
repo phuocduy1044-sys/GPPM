@@ -148,6 +148,7 @@ export async function reviewProject(options: ReviewProjectOptions): Promise<Revi
     schemaVersion: 1,
     reviewId,
     sessionId: options.sessionId,
+    projectId: computeProjectId(root),
     revision,
     timestamp: new Date().toISOString(),
     projectName,

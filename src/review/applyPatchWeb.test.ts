@@ -66,4 +66,45 @@ export function cleanFunction() {
     const patch = getFindingPatch(testDir, findingAdviceOnly)
     expect(patch).toBeNull()
   })
+
+  it('3. applies multi-file patches without duplicating guard statements', async () => {
+    const authCode = `
+const { findUserByUsername } = require('./db.js');
+async function authenticateUser(username, password) {
+  const record = findUserByUsername(username);
+  if (record.passwordHash === hashPassword(password)) {
+    return { success: true, user: { id: record.id, username: record.username, role: record.role } };
+  }
+  return { success: false };
+}
+`
+    const dbCode = `
+function findUserByUsername(username) {
+  const results = queryUnsafe(\`SELECT * FROM users WHERE username = '\${username}'\`);
+  return results.length > 0 ? results[0] : null;
+}
+`
+    writeFileSync(join(testDir, 'auth.js'), authCode, 'utf8')
+    writeFileSync(join(testDir, 'db.js'), dbCode, 'utf8')
+
+    const report = await reviewProject({ projectRoot: testDir, mode: 'rules' })
+    const allFindingIds = report.findings.map((f) => f.id)
+    const patch = createPatch(testDir, report.findings, report.revision, allFindingIds)
+
+    expect(patch.files.length).toBe(2)
+    const authFilePatch = patch.files.find((f) => f.filePath === 'auth.js')
+    expect(authFilePatch).toBeDefined()
+
+    // Ensure the guard statement is NOT duplicated 8 times
+    const occurrences = (authFilePatch!.newContent!.match(/if \(!record\) return/g) || []).length
+    expect(occurrences).toBe(1)
+
+    const applyRes = applyPatch(testDir, patch, report.revision, true)
+    expect(applyRes.success).toBe(true)
+
+    // Re-review after applying patch should have 0 critical findings
+    const reportAfter = await reviewProject({ projectRoot: testDir, mode: 'rules' })
+    const criticals = reportAfter.findings.filter((f) => f.severity === 'critical')
+    expect(criticals.length).toBe(0)
+  })
 })

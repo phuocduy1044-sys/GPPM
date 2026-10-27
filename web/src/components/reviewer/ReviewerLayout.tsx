@@ -85,11 +85,49 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
         return
       }
 
+      // Extract applied findings from history
+      const appliedFindingIds = new Set<string>()
+      if (Array.isArray(data.applyHistory)) {
+        for (const h of data.applyHistory) {
+          if (h.status === 'applied' && Array.isArray(h.findingIds)) {
+            for (const id of h.findingIds) appliedFindingIds.add(id)
+          }
+        }
+      }
+
       // 1. Adapt findings
       const adaptedFindings = (data.findings as any[] || []).map((f: any) => {
         const fileName = f.filePath?.replace(/\\/g, '/') || 'file'
+        const hasPatch = Boolean(f.canPatch || f.patchPreview || (data.patches && f.patchId && data.patches[f.patchId]))
+
+        let patchObj: { original: string; replacement: string; diffText: string } | undefined
+        if (f.patchPreview) {
+          patchObj = {
+            original: f.patchPreview.original,
+            replacement: f.patchPreview.replacement,
+            diffText: f.patchPreview.diffText || `--- a/${f.filePath}\n+++ b/${f.filePath}\n@@ -${f.line},1 +${f.line},1 @@\n-${f.patchPreview.original}\n+${f.patchPreview.replacement}`,
+          }
+        } else if (data.patches && f.patchId && data.patches[f.patchId]) {
+          const p = data.patches[f.patchId]
+          patchObj = {
+            original: f.evidence,
+            replacement: f.suggestion,
+            diffText: p.fullDiff || `--- a/${f.filePath}\n+++ b/${f.filePath}\n@@ -${f.line},1 +${f.line},1 @@\n-${f.evidence}\n+${f.suggestion}`,
+          }
+        } else if (hasPatch) {
+          patchObj = {
+            original: f.evidence,
+            replacement: f.suggestion,
+            diffText: `--- a/${f.filePath}\n+++ b/${f.filePath}\n@@ -${f.line},1 +${f.line},1 @@\n-${f.evidence}\n+${f.suggestion}`,
+          }
+        }
+
+        const isApplied = appliedFindingIds.has(f.id) || f.status === 'applied'
+
         return {
           id: f.id,
+          patchId: f.patchId,
+          canPatch: hasPatch,
           file: fileName,
           fullPath: f.filePath,
           line: f.line,
@@ -102,13 +140,9 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
           rootCause: f.explanation,
           triggerCondition: f.confidenceReason || 'Phát hiện qua phân tích AST Engine',
           suggestedFix: f.suggestion,
-          patch: {
-            original: f.evidence,
-            replacement: f.suggestion,
-            diffText: `--- a/${f.filePath}\n+++ b/${f.filePath}\n@@ -${f.line},1 +${f.line},1 @@\n-${f.evidence}\n+${f.suggestion}`,
-          },
+          patch: patchObj,
           source: f.source || 'rule',
-          status: 'open' as const,
+          status: isApplied ? ('applied' as const) : ('open' as const),
         }
       })
 
@@ -269,29 +303,31 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
   const handleApplyPatch = async (findingId: string) => {
     try {
       const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const session = reviewSessionId ? `&session=${encodeURIComponent(reviewSessionId)}` : ''
+      const fullQuery = queryToken ? `${queryToken}${session}` : (session ? `?${session.slice(1)}` : '')
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers['x-viecodie-token'] = token
+      if (reviewSessionId) headers['x-viecodie-session-id'] = reviewSessionId
 
-      const res = await fetch(`/api/review/apply${queryToken}`, {
+      const finding = project?.findings.find((f) => f.id === findingId)
+      const patchId = finding?.patchId
+
+      const res = await fetch(`/api/review/apply${fullQuery}`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ findingId, confirm: true }),
+        body: JSON.stringify({
+          findingId,
+          patchId,
+          projectPath: project?.projectRoot,
+          confirm: true,
+        }),
       })
 
-      if (res.ok) {
-        // Refresh live data
-        await fetchCurrentReport()
-      } else {
-        // Optimistic update
-        setProject((prev) => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            findings: prev.findings.map((f) => (f.id === findingId ? { ...f, status: 'applied' as const } : f)),
-          }
-        })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Áp dụng bản vá thất bại')
       }
-    } catch {
+
       setProject((prev) => {
         if (!prev) return prev
         return {
@@ -299,6 +335,44 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
           findings: prev.findings.map((f) => (f.id === findingId ? { ...f, status: 'applied' as const } : f)),
         }
       })
+
+      // Refresh live data
+      await fetchCurrentReport()
+    } catch (err) {
+      console.error('Apply patch error:', err)
+      throw err
+    }
+  }
+
+  // Handle batch fix all patchable findings
+  const handleApplyAllPatches = async () => {
+    try {
+      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const session = reviewSessionId ? `&session=${encodeURIComponent(reviewSessionId)}` : ''
+      const fullQuery = queryToken ? `${queryToken}${session}` : (session ? `?${session.slice(1)}` : '')
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers['x-viecodie-token'] = token
+      if (reviewSessionId) headers['x-viecodie-session-id'] = reviewSessionId
+
+      const res = await fetch(`/api/review/apply${fullQuery}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          applyAll: true,
+          projectPath: project?.projectRoot,
+          confirm: true,
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Áp dụng tất cả bản vá thất bại')
+      }
+
+      await fetchCurrentReport()
+    } catch (err) {
+      console.error('Apply all patches error:', err)
+      throw err
     }
   }
 
@@ -355,7 +429,11 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
       const res = await fetch(`/api/review/verify${fullQuery}`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ checkCommand: 'npm test', confirm: true }),
+        body: JSON.stringify({
+          checkCommand: 'npm test',
+          projectPath: project.projectRoot,
+          confirm: true,
+        }),
       })
 
       if (res.ok) {
@@ -778,6 +856,7 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
           findings={project.findings}
           testResult={project.testResult}
           onApplyPatch={handleApplyPatch}
+          onApplyAllPatches={handleApplyAllPatches}
           onUndoPatch={handleUndoPatch}
           onAnalyzeFile={(file) => {
             setActiveFile(file)
