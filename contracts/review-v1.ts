@@ -142,6 +142,7 @@ export interface ReviewReport {
   unresolvedCalls: UnresolvedCall[];
   findings: Finding[];
   fileContents?: Record<string, string>;
+  isOutdated?: boolean;
   patch?: Patch;
   verification?: VerificationResult;
 }

@@ -1,18 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
+  IconAlertCircle,
+  IconAlertTriangle,
   IconBug,
   IconCode,
   IconCpu,
   IconFileCode,
   IconFocus2,
-  IconLayoutSidebarLeftCollapse,
-  IconMessageChatbot,
   IconMaximize,
+  IconMessageChatbot,
+  IconRefresh,
   IconShieldLock,
   IconSparkles,
 } from '@tabler/icons-react'
-import { DEMO_PROJECT_FIXTURE } from '@/lib/reviewFixture'
-import type { Finding } from '@/lib/reviewTypes'
+import type { ReviewProject, Finding } from '@/lib/reviewTypes'
 import { token } from '@/lib/api'
 import { GraphReview } from './GraphReview'
 import { CodeReview } from './CodeReview'
@@ -24,215 +25,421 @@ interface ReviewerLayoutProps {
 }
 
 export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
-  const [project, setProject] = useState(DEMO_PROJECT_FIXTURE)
+  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [project, setProject] = useState<ReviewProject | null>(null)
   const [activeTab, setActiveTab] = useState<'graph' | 'code'>('graph')
-  const [activeFile, setActiveFile] = useState('auth.js')
-  const [selectedNodeId, setSelectedNodeId] = useState<string>('auth_buildAuthQuery')
-  const [selectedFindingId, setSelectedFindingId] = useState<string>('f1')
+  const [activeFile, setActiveFile] = useState('')
+  const [selectedNodeId, setSelectedNodeId] = useState<string>('')
+  const [selectedFindingId, setSelectedFindingId] = useState<string>('')
   const [dualAiEnabled, setDualAiEnabled] = useState(true)
+  const [reReviewing, setReReviewing] = useState(false)
 
-  // Fetch live backend report if available
-  useEffect(() => {
-    const fetchCurrentReport = async () => {
-      try {
-        const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
-        const headers: Record<string, string> = { Accept: 'application/json' }
-        if (token) headers['x-viecodie-token'] = token
+  // Fetch live backend report
+  const fetchCurrentReport = useCallback(async () => {
+    setLoadStatus('loading')
+    setErrorMessage(null)
 
-        const res = await fetch(`/api/review/current${queryToken}`, { headers })
-        if (!res.ok) return
-        const data = await res.json()
-        if (!data || (!data.nodes && !data.findings && !data.scanScope)) return
+    try {
+      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const headers: Record<string, string> = { Accept: 'application/json' }
+      if (token) headers['x-viecodie-token'] = token
 
-        const adaptedFindings = (data.findings as any[] || []).map((f: any) => {
-          const fileName = f.filePath?.split(/[\\/]/).pop() || f.filePath
-          return {
-            id: f.id,
-            file: fileName,
-            line: f.line,
-            endLine: f.endLine,
-            severity: f.severity,
-            category: f.category,
-            title: f.title,
-            description: f.explanation,
-            evidence: f.evidence,
-            rootCause: f.explanation,
-            triggerCondition: f.confidenceReason || 'Phát hiện qua phân tích AST Engine',
-            suggestedFix: f.suggestion,
-            patch: {
-              original: f.evidence,
-              replacement: f.suggestion,
-              diffText: `--- a/${f.filePath}\n+++ b/${f.filePath}\n@@ -${f.line},1 +${f.line},1 @@\n-${f.evidence}\n+${f.suggestion}`,
-            },
-            source: f.source || 'rule',
-            status: 'open' as const,
-          }
-        })
+      const res = await fetch(`/api/review/current${queryToken}`, { headers })
 
-        // Keep function nodes (filter out pure file-level nodes)
-        const rawFuncNodes = ((data.nodes as any[]) || []).filter(
-          (n: any) => n.type === 'function' || (!n.type && !String(n.id).startsWith('file:'))
+      if (res.status === 404) {
+        setLoadStatus('error')
+        setErrorMessage(
+          'Chưa có kết quả review cho dự án hiện tại. CLI là nơi làm việc chính — hãy mở terminal của dự án và chạy lệnh /review trước.'
         )
-        const adaptedNodes = rawFuncNodes.map((n: any) => {
-          const fileName = n.filePath?.split(/[\\/]/).pop() || n.filePath || 'file'
-          const matchingFindings = adaptedFindings.filter(
-            (fi: any) => fi.id === n.id || (fi.file === fileName && fi.line >= n.startLine && fi.line <= n.endLine)
-          )
-          return {
-            id: n.id,
-            file: fileName,
-            functionName: n.name,
-            startLine: n.startLine,
-            endLine: n.endLine,
-            language: n.filePath?.endsWith('.ts') || n.filePath?.endsWith('.tsx') ? 'TypeScript' : 'JavaScript',
-            hasIssue: matchingFindings.length > 0,
-            issueCount: matchingFindings.length,
-            calledBy: ((n.callerIds || []) as any[]).map((cid: any) => String(cid).split(':').pop() || String(cid)),
-            calls: ((n.calleeIds || []) as any[]).map((cid: any) => ({
-              functionName: String(cid).split(':').pop() || String(cid),
-              file: String(cid).split(':')[1] || String(cid),
-            })),
-          }
-        })
+        return
+      }
 
-        const adaptedEdges = ((data.edges as any[]) || []).map((e: any) => ({
-          id: e.id,
-          sourceNodeId: e.sourceId,
-          targetNodeId: e.targetId,
-          type: e.type === 'call' ? ('call' as const) : ('cross_file' as const),
-          label: e.evidenceSnippet ? e.evidenceSnippet.slice(0, 30) : undefined,
-        }))
+      if (res.status === 401) {
+        setLoadStatus('error')
+        setErrorMessage(
+          'Phiên kết nối chưa được xác thực (401 Unauthorized). Vui lòng gõ lệnh /graph trong CLI để mở lại trang.'
+        )
+        return
+      }
 
-        // Collect all unique file names
-        const fileNamesSet = new Set<string>()
-        if (Array.isArray(data.scanScope?.filesRead)) {
-          data.scanScope.filesRead.forEach((fp: string) => {
-            fileNamesSet.add(fp.split(/[\\/]/).pop() || fp)
-          })
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}))
+        setLoadStatus('error')
+        setErrorMessage(
+          errJson.error || `Không thể tải dữ liệu review từ máy chủ (mã lỗi HTTP ${res.status}).`
+        )
+        return
+      }
+
+      const data = await res.json()
+      if (!data || (!data.projectName && !data.nodes && !data.findings && !data.scanScope)) {
+        setLoadStatus('error')
+        setErrorMessage(
+          'Dữ liệu review trả về không đúng cấu trúc hợp lệ. Vui lòng chạy lại lệnh /review trong CLI.'
+        )
+        return
+      }
+
+      // 1. Adapt findings
+      const adaptedFindings = (data.findings as any[] || []).map((f: any) => {
+        const fileName = f.filePath?.split(/[\\/]/).pop() || f.filePath
+        return {
+          id: f.id,
+          file: fileName,
+          fullPath: f.filePath,
+          line: f.line,
+          endLine: f.endLine,
+          severity: f.severity,
+          category: f.category,
+          title: f.title,
+          description: f.explanation,
+          evidence: f.evidence,
+          rootCause: f.explanation,
+          triggerCondition: f.confidenceReason || 'Phát hiện qua phân tích AST Engine',
+          suggestedFix: f.suggestion,
+          patch: {
+            original: f.evidence,
+            replacement: f.suggestion,
+            diffText: `--- a/${f.filePath}\n+++ b/${f.filePath}\n@@ -${f.line},1 +${f.line},1 @@\n-${f.evidence}\n+${f.suggestion}`,
+          },
+          source: f.source || 'rule',
+          status: 'open' as const,
         }
-        adaptedNodes.forEach((n: any) => fileNamesSet.add(n.file))
-        adaptedFindings.forEach((f: any) => fileNamesSet.add(f.file))
-        const uniqueFileNames = Array.from(fileNamesSet)
+      })
 
-        let fileContents: Record<string, string> = data.fileContents || {}
+      // 2. Adapt function nodes
+      const rawFuncNodes = ((data.nodes as any[]) || []).filter(
+        (n: any) => n.type === 'function' || (!n.type && !String(n.id).startsWith('file:'))
+      )
+      const adaptedNodes = rawFuncNodes.map((n: any) => {
+        const fileName = n.filePath?.split(/[\\/]/).pop() || n.filePath || 'file'
+        const matchingFindings = adaptedFindings.filter(
+          (fi: any) => fi.id === n.id || (fi.file === fileName && fi.line >= n.startLine && fi.line <= n.endLine)
+        )
+        return {
+          id: n.id,
+          file: fileName,
+          functionName: n.name,
+          startLine: n.startLine,
+          endLine: n.endLine,
+          language: n.filePath?.endsWith('.ts') || n.filePath?.endsWith('.tsx') ? 'TypeScript' : 'JavaScript',
+          hasIssue: matchingFindings.length > 0,
+          issueCount: matchingFindings.length,
+          calledBy: ((n.callerIds || []) as any[]).map((cid: any) => String(cid).split(':').pop() || String(cid)),
+          calls: ((n.calleeIds || []) as any[]).map((cid: any) => ({
+            functionName: String(cid).split(':').pop() || String(cid),
+            file: String(cid).split(':')[1] || String(cid),
+          })),
+        }
+      })
 
-        // Fallback fetch file contents via /api/review/source if not already included
-        if (Object.keys(fileContents).length === 0 && uniqueFileNames.length > 0) {
-          const fetched: Record<string, string> = {}
-          await Promise.all(
-            uniqueFileNames.map(async (fn) => {
-              try {
-                const sRes = await fetch(`/api/review/source?path=${encodeURIComponent(fn)}${queryToken.replace('?', '&')}`, { headers })
-                if (sRes.ok) {
-                  const sJson = await sRes.json()
-                  if (sJson?.content) {
-                    fetched[fn] = sJson.content
-                  }
+      // 3. Adapt edges
+      const adaptedEdges = ((data.edges as any[]) || []).map((e: any) => ({
+        id: e.id,
+        sourceNodeId: e.sourceId,
+        targetNodeId: e.targetId,
+        type: e.type === 'call' ? ('call' as const) : ('cross_file' as const),
+        label: e.evidenceSnippet ? e.evidenceSnippet.slice(0, 30) : undefined,
+      }))
+
+      // 4. Collect files list
+      const fileNamesSet = new Set<string>()
+      if (Array.isArray(data.scanScope?.filesRead)) {
+        data.scanScope.filesRead.forEach((fp: string) => {
+          fileNamesSet.add(fp.split(/[\\/]/).pop() || fp)
+        })
+      }
+      adaptedNodes.forEach((n: any) => fileNamesSet.add(n.file))
+      adaptedFindings.forEach((f: any) => fileNamesSet.add(f.file))
+      const uniqueFileNames = Array.from(fileNamesSet)
+
+      // 5. File contents
+      let fileContents: Record<string, string> = data.fileContents || {}
+
+      if (Object.keys(fileContents).length === 0 && uniqueFileNames.length > 0) {
+        const fetched: Record<string, string> = {}
+        await Promise.all(
+          uniqueFileNames.map(async (fn) => {
+            try {
+              const sRes = await fetch(`/api/review/source?path=${encodeURIComponent(fn)}${queryToken.replace('?', '&')}`, { headers })
+              if (sRes.ok) {
+                const sJson = await sRes.json()
+                if (sJson?.content) {
+                  fetched[fn] = sJson.content
                 }
-              } catch {}
-            })
-          )
-          fileContents = fetched
+              }
+            } catch {}
+          })
+        )
+        fileContents = fetched
+      }
+
+      const adaptedFiles = uniqueFileNames.map((fileName) => {
+        const content = fileContents[fileName] || ''
+        const lineCount = content ? content.split('\n').length : 30
+        const issueCount = adaptedFindings.filter((af: any) => af.file === fileName).length
+        return {
+          name: fileName,
+          lineCount,
+          issueCount,
+          status: issueCount > 0 ? `${issueCount} vấn đề` : 'Sạch',
         }
+      })
 
-        const adaptedFiles = uniqueFileNames.map((fileName) => {
-          const content = fileContents[fileName] || ''
-          const lineCount = content ? content.split('\n').length : 30
-          const issueCount = adaptedFindings.filter((af: any) => af.file === fileName).length
-          return {
-            name: fileName,
-            lineCount,
-            issueCount,
-            status: issueCount > 0 ? `${issueCount} vấn đề` : 'Sạch',
-          }
-        })
+      const proj: ReviewProject = {
+        projectName: data.projectName || 'Dự án hiện tại',
+        revision: typeof data.revision === 'string' ? 1 : (data.revision || 1),
+        engineStatus: 'ready',
+        files: adaptedFiles,
+        nodes: adaptedNodes,
+        edges: adaptedEdges,
+        findings: adaptedFindings,
+        fileContents,
+        isOutdated: Boolean(data.isOutdated),
+        testResult: data.verification ? {
+          status: data.verification.status === 'passed' ? 'passed' : 'failed',
+          totalTests: data.verification.testsSummary?.total ?? 1,
+          failedTests: data.verification.testsSummary?.failed ?? (data.verification.status === 'passed' ? 0 : 1),
+          durationMs: data.verification.durationMs || 0,
+          command: data.verification.command || 'npm test',
+          exitCode: data.verification.exitCode ?? (data.verification.status === 'passed' ? 0 : 1),
+          logOutput: data.verification.sanitizedLog || data.verification.stdout || data.verification.stderr || 'Hoàn tất kiểm thử',
+          score: data.verification.status === 'passed' ? '100/100' : '0/100',
+        } : undefined,
+      }
 
-        setProject({
-          projectName: data.projectName || 'viecodie-review',
-          revision: typeof data.revision === 'string' ? 1 : (data.revision || 1),
-          engineStatus: 'ready',
-          files: adaptedFiles.length > 0 ? adaptedFiles : DEMO_PROJECT_FIXTURE.files,
-          nodes: adaptedNodes.length > 0 ? adaptedNodes : DEMO_PROJECT_FIXTURE.nodes,
-          edges: adaptedEdges.length > 0 ? adaptedEdges : DEMO_PROJECT_FIXTURE.edges,
-          findings: adaptedFindings.length > 0 ? adaptedFindings : DEMO_PROJECT_FIXTURE.findings,
-          fileContents: Object.keys(fileContents).length > 0 ? fileContents : DEMO_PROJECT_FIXTURE.fileContents,
-        })
+      setProject(proj)
+      setLoadStatus('ready')
 
-        // Prioritize first file with issues
-        const firstFileWithIssue = adaptedFiles.find((f) => f.issueCount > 0)?.name || adaptedFiles[0]?.name
-        if (firstFileWithIssue) {
-          setActiveFile(firstFileWithIssue)
-          const nodeInFile = adaptedNodes.find((n) => n.file === firstFileWithIssue)
-          if (nodeInFile) {
-            setSelectedNodeId(nodeInFile.id)
-          } else if (adaptedNodes.length > 0) {
-            setSelectedNodeId(adaptedNodes[0].id)
-          }
+      // Select first file with issues or first available file
+      const firstIssueFile = adaptedFiles.find((f) => f.issueCount > 0)?.name || adaptedFiles[0]?.name || ''
+      setActiveFile(firstIssueFile)
+
+      if (firstIssueFile) {
+        const nodeInFile = adaptedNodes.find((n) => n.file === firstIssueFile)
+        if (nodeInFile) {
+          setSelectedNodeId(nodeInFile.id)
         } else if (adaptedNodes.length > 0) {
           setSelectedNodeId(adaptedNodes[0].id)
-          if (adaptedNodes[0].file) setActiveFile(adaptedNodes[0].file)
         }
-
-        if (adaptedFindings.length > 0) {
-          setSelectedFindingId(adaptedFindings[0].id)
-        }
-      } catch (err) {
-        console.error('Error fetching review report:', err)
+      } else if (adaptedNodes.length > 0) {
+        setSelectedNodeId(adaptedNodes[0].id)
       }
-    }
 
-    fetchCurrentReport()
+      if (adaptedFindings.length > 0) {
+        setSelectedFindingId(adaptedFindings[0].id)
+      }
+    } catch (err) {
+      console.error('Error fetching review report:', err)
+      setLoadStatus('error')
+      setErrorMessage('Không thể kết nối đến máy chủ local. Vui lòng đảm bảo phiên CLI vẫn đang mở.')
+    }
   }, [])
 
-  const selectedNode = project.nodes.find((n) => n.id === selectedNodeId)
-  const selectedFinding = project.findings.find((f) => f.id === selectedFindingId)
+  useEffect(() => {
+    fetchCurrentReport()
+  }, [fetchCurrentReport])
+
+  const selectedNode = project?.nodes.find((n) => n.id === selectedNodeId)
+  const selectedFinding = project?.findings.find((f) => f.id === selectedFindingId)
 
   // Handle node selection
   const handleSelectNode = (nodeId: string) => {
     setSelectedNodeId(nodeId)
+    if (!project) return
     const node = project.nodes.find((n) => n.id === nodeId)
     if (node && node.file && node.file !== 'HTTP API') {
       setActiveFile(node.file)
-      // Pick first finding of that file if any
       const ff = project.findings.find((f) => f.file === node.file)
       if (ff) setSelectedFindingId(ff.id)
     }
   }
 
   // Handle patch application
-  const handleApplyPatch = (findingId: string) => {
-    setProject((prev) => {
-      const nextFindings = prev.findings.map((f) =>
-        f.id === findingId ? { ...f, status: 'applied' as const } : f
-      )
-      return {
-        ...prev,
-        revision: prev.revision + 1,
-        findings: nextFindings,
-        testResult: {
-          status: 'passed',
-          totalTests: 1,
-          failedTests: 0,
-          durationMs: 82,
-          score: '100/100',
-          command: 'node --test suite.mjs',
-          exitCode: 0,
-          logOutput: `>_ vie-review@sandbox:~$ node --test suite.mjs                      exit 0 · 82 ms\n✔ buildAuthQuery handles SQL injection safely (12ms)\n✔ all 1 tests passed`,
-        },
+  const handleApplyPatch = async (findingId: string) => {
+    try {
+      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers['x-viecodie-token'] = token
+
+      const res = await fetch(`/api/review/apply${queryToken}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ findingId, confirm: true }),
+      })
+
+      if (res.ok) {
+        // Refresh live data
+        await fetchCurrentReport()
+      } else {
+        // Optimistic update
+        setProject((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            findings: prev.findings.map((f) => (f.id === findingId ? { ...f, status: 'applied' as const } : f)),
+          }
+        })
       }
-    })
+    } catch {
+      setProject((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          findings: prev.findings.map((f) => (f.id === findingId ? { ...f, status: 'applied' as const } : f)),
+        }
+      })
+    }
   }
 
-  // Handle re-run test
-  const handleRunTest = () => {
-    // Already simulated via TestDrawer or patch
+  // Handle re-run verification tests
+  const handleRunTest = async () => {
+    if (!project) return
+    try {
+      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers['x-viecodie-token'] = token
+
+      setProject((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          testResult: {
+            status: 'running',
+            totalTests: prev.testResult?.totalTests || 1,
+            failedTests: 0,
+            durationMs: 0,
+            command: 'npm test',
+            exitCode: 0,
+            logOutput: '⏳ Đang thực thi bộ kiểm thử (npm test)...',
+          },
+        }
+      })
+
+      const res = await fetch(`/api/review/verify${queryToken}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ checkCommand: 'npm test', confirm: true }),
+      })
+
+      if (res.ok) {
+        const v = await res.json()
+        setProject((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            testResult: {
+              status: v.status === 'passed' ? 'passed' : 'failed',
+              totalTests: v.testsSummary?.total ?? 1,
+              failedTests: v.testsSummary?.failed ?? (v.status === 'passed' ? 0 : 1),
+              durationMs: v.durationMs || 0,
+              score: v.status === 'passed' ? '100/100' : '0/100',
+              command: v.command || 'npm test',
+              exitCode: v.exitCode ?? (v.status === 'passed' ? 0 : 1),
+              logOutput: v.sanitizedLog || v.stdout || v.stderr || 'Hoàn tất kiểm thử',
+            },
+          }
+        })
+      }
+    } catch (err) {
+      console.error('Run test error:', err)
+    }
   }
 
+  // Handle re-reviewing project
+  const handleReReview = async () => {
+    setReReviewing(true)
+    try {
+      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers['x-viecodie-token'] = token
+
+      const res = await fetch(`/api/review${queryToken}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ mode: 'rules' }),
+      })
+      if (res.ok) {
+        await fetchCurrentReport()
+      }
+    } finally {
+      setReReviewing(false)
+    }
+  }
+
+  // 1. LOADING STATE
+  if (loadStatus === 'loading') {
+    return (
+      <div className="flex h-screen w-screen flex-col items-center justify-center bg-[#070c14] text-foreground font-sans select-none">
+        <div className="flex flex-col items-center gap-4 text-center p-6 max-w-md">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/20 text-primary border border-primary/40 shadow-3d-2 animate-pulse">
+            <IconFocus2 className="size-8" stroke={2.2} />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-base font-bold tracking-tight text-foreground">Đang tải dữ liệu Code Review...</h2>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Đang đồng bộ kết quả phân tích AST, quan hệ đồ thị và các lỗi phát hiện từ phiên CLI hiện tại.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground/60 pt-2">
+            <span className="size-2 rounded-full bg-emerald-400 animate-ping" />
+            <span>VIECODIE Reviewer Engine</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 2. ERROR STATE (No fallback to fake fixture)
+  if (loadStatus === 'error' || !project) {
+    return (
+      <div className="flex h-screen w-screen flex-col items-center justify-center bg-[#070c14] text-foreground font-sans select-none p-4">
+        <div className="flex flex-col items-center gap-4 text-center p-8 max-w-lg rounded-2xl border border-border/60 bg-[#09101d] shadow-3d-3">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-3d-1">
+            <IconAlertCircle className="size-8" stroke={2} />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-base font-bold text-foreground">Không thể tải dữ liệu Code Review</h2>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {errorMessage || 'Chưa tìm thấy dữ liệu review của phiên hiện tại.'}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border/40 bg-[#060a12] p-3 text-left w-full space-y-1 text-xs font-mono text-muted-foreground">
+            <div className="text-[11px] font-bold text-foreground/80">Hướng dẫn nhanh:</div>
+            <div>1. Trong terminal dự án, gõ <code className="text-lime-400 font-semibold">/review</code> để phân tích mã nguồn.</div>
+            <div>2. Sau khi review xong, gõ <code className="text-cyan-400 font-semibold">/graph</code> để mở trực quan.</div>
+          </div>
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => fetchCurrentReport()}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-all shadow-3d-1"
+            >
+              <IconRefresh className="size-4" />
+              <span>Thử lại (Retry)</span>
+            </button>
+            {onSwitchToAgentChat && (
+              <button
+                type="button"
+                onClick={onSwitchToAgentChat}
+                className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/30 px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+              >
+                <IconMessageChatbot className="size-4" />
+                <span>Chuyển sang Agent Chat</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 3. READY STATE: Render live Code Reviewer by Graph
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#070c14] text-foreground font-sans antialiased">
-      {/* 1. Global Header */}
+      {/* Global Header */}
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-border/50 bg-[#09101d] px-4 select-none">
-        {/* Left Logo */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="flex size-7 items-center justify-center rounded-lg bg-primary/20 text-primary border border-primary/40 shadow-3d-1">
@@ -242,12 +449,11 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
               <span className="font-bold tracking-tight text-sm text-foreground">VIECODIE</span>
               <div className="flex items-center gap-1.5 text-[10px] font-mono leading-none">
                 <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-emerald-400">Engine sẵn sàng</span>
+                <span className="text-emerald-400">Review Engine</span>
               </div>
             </div>
           </div>
 
-          {/* Mode Switcher: Agent Chat vs Graph Reviewer */}
           {onSwitchToAgentChat && (
             <button
               type="button"
@@ -261,17 +467,36 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
         </div>
 
         {/* Center Project & Revision Badge */}
-        <div className="flex items-center rounded-md border border-border/50 bg-[#0d1626] px-3 py-1 font-mono text-xs">
-          <span className="text-muted-foreground">project: </span>
-          <span className="font-bold text-cyan-400 ml-1">{project.projectName}</span>
-          <span className="text-muted-foreground mx-1.5">·</span>
-          <span className="text-muted-foreground">rev: </span>
-          <span className="font-bold text-foreground ml-1">{project.revision}</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-md border border-border/50 bg-[#0d1626] px-3 py-1 font-mono text-xs">
+            <span className="text-muted-foreground">project: </span>
+            <span className="font-bold text-cyan-400 ml-1">{project.projectName}</span>
+            <span className="text-muted-foreground mx-1.5">·</span>
+            <span className="text-muted-foreground">rev: </span>
+            <span className="font-bold text-foreground ml-1">{project.revision}</span>
+          </div>
+
+          {project.isOutdated && (
+            <span className="rounded-md border border-amber-500/40 bg-amber-500/20 px-2.5 py-1 text-[11px] font-semibold text-amber-300 animate-pulse">
+              Dữ liệu cũ
+            </span>
+          )}
         </div>
 
         {/* Right Controls */}
         <div className="flex items-center gap-3">
-          {/* Dual AI Toggle */}
+          {project.isOutdated && (
+            <button
+              type="button"
+              onClick={handleReReview}
+              disabled={reReviewing}
+              className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-all"
+            >
+              <IconRefresh className={`size-3.5 ${reReviewing ? 'animate-spin' : ''}`} />
+              <span>{reReviewing ? 'Đang quét lại...' : 'Review lại'}</span>
+            </button>
+          )}
+
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">AI kép</span>
             <button
@@ -291,7 +516,6 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
 
           <div className="h-4 w-px bg-border/50" />
 
-          {/* Fullscreen icon */}
           <button
             type="button"
             onClick={() => {
@@ -306,11 +530,30 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
         </div>
       </header>
 
-      {/* 2. Main Body (Left Sidebar + Center Views + Right Panel) */}
+      {/* Outdated Notice Banner */}
+      {project.isOutdated && (
+        <div className="z-20 flex shrink-0 items-center justify-between border-b border-amber-500/30 bg-amber-950/40 px-4 py-1.5 text-xs text-amber-300">
+          <div className="flex items-center gap-2">
+            <IconAlertTriangle className="size-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>Lưu ý:</strong> Mã nguồn đã có thay đổi so với lần review này (phiên bản: <code>{project.revision}</code>). Kết quả hiển thị bên dưới thuộc về phiên bản cũ.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleReReview}
+            disabled={reReviewing}
+            className="rounded bg-amber-500/20 px-2 py-0.5 font-semibold text-amber-200 hover:bg-amber-500/30 transition-colors"
+          >
+            {reReviewing ? 'Đang phân tích lại...' : 'Quét lại mã mới'}
+          </button>
+        </div>
+      )}
+
+      {/* Main Body */}
       <div className="flex flex-1 overflow-hidden">
         {/* LEFT SIDEBAR: Nav + Explorer + Issues */}
         <aside className="flex w-64 shrink-0 flex-col border-r border-border/40 bg-[#080e19] select-none">
-          {/* Main Navigation Tabs */}
           <div className="p-2 space-y-1 border-b border-border/40">
             <button
               type="button"
@@ -369,7 +612,7 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
                     }`}
                   >
                     <div className="flex items-center gap-2 truncate">
-                      <span className="size-2 rounded-full bg-amber-400" />
+                      <span className={`size-2 rounded-full ${file.issueCount > 0 ? 'bg-rose-500' : 'bg-amber-400'}`} />
                       <span className="truncate">{file.name}</span>
                     </div>
                     {file.issueCount > 0 && (
@@ -441,12 +684,11 @@ export function ReviewerLayout({ onSwitchToAgentChat }: ReviewerLayoutProps) {
             </div>
           </div>
 
-          {/* Bottom user avatar */}
           <div className="flex h-10 shrink-0 items-center justify-between border-t border-border/40 px-3 bg-[#070c14]">
             <div className="flex size-6 items-center justify-center rounded-full bg-primary/20 text-primary font-bold text-xs">
-              N
+              V
             </div>
-            <span className="text-[10px] font-mono text-muted-foreground/60">AGY B · v3.13.1</span>
+            <span className="text-[10px] font-mono text-muted-foreground/60">VIECODIE v3.13.1</span>
           </div>
         </aside>
 

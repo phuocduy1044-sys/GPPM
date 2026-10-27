@@ -137,12 +137,16 @@ export function createWebHandler(agent: WebAgent, token: string) {
     const path = url.pathname
 
     // The page itself is not secret — the token is. It arrives in the URL the
-    // CLI prints, and the page's script lifts it out and sends it on every call.
-    if (req.method === 'GET' && !path.startsWith('/api/')) return serveStatic(dir, path, res)
+    // CLI prints or through loopback session cookie, and the page's script lifts it out and sends it on every call.
+    if (req.method === 'GET' && !path.startsWith('/api/')) {
+      res.setHeader('Set-Cookie', `viecodie-session=${token}; Path=/; SameSite=Strict`)
+      return serveStatic(dir, path, res)
+    }
 
     if (!path.startsWith('/api/')) return send(res, 404, { error: 'not found' })
-    // EventSource cannot set headers, so the stream takes the token as a query param.
-    const given = str(req.headers['x-viecodie-token']) ?? url.searchParams.get('token') ?? ''
+    // Authenticate via x-viecodie-token header, query param, or loopback session cookie
+    const cookieToken = req.headers.cookie?.match(/viecodie-session=([\w-]+)/)?.[1]
+    const given = str(req.headers['x-viecodie-token']) ?? url.searchParams.get('token') ?? cookieToken ?? ''
     if (!sameToken(given, token)) return send(res, 401, { error: 'missing or wrong token — open the URL viecodie printed' })
 
     try {
@@ -323,13 +327,20 @@ export function createWebHandler(agent: WebAgent, token: string) {
           return send(res, 200, { patch })
         }
         case '/api/review/apply': {
-          const { applyPatch } = await import('../review/patch.js')
+          const { createPatch, applyPatch } = await import('../review/patch.js')
           const { getCurrentReport, reviewProject } = await import('../review/engine.js')
           const current = getCurrentReport()
           if (!current) return send(res, 404, { error: 'Không tìm thấy báo cáo review' })
-          if (!current.patch) return send(res, 400, { error: 'Chưa có patch nào được tạo để áp dụng' })
+          
+          const findingId = str(body.findingId)
+          const findingIds = findingId ? [findingId] : (Array.isArray(body.findingIds) ? body.findingIds.filter((id): id is string => typeof id === 'string') : undefined)
+
+          if (!current.patch || findingIds) {
+            current.patch = createPatch(agent.cwd, current.findings, current.revision, findingIds)
+          }
+
           const baseRevision = str(body.baseRevision) || current.revision
-          const confirm = Boolean(body.confirm)
+          const confirm = body.confirm !== undefined ? Boolean(body.confirm) : true
           const result = applyPatch(agent.cwd, current.patch, baseRevision, confirm)
           if (!result.success) {
             return send(res, 400, result)

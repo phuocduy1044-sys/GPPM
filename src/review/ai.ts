@@ -206,13 +206,16 @@ NHIỆM VỤ CỦA BẠN:
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
+    const sanitizedError = errorMsg
+      .replace(/(?:sk-[a-zA-Z0-9_-]{8,}|key-[a-zA-Z0-9_-]{8,}|Bearer\s+[a-zA-Z0-9_\-\.]{15,})/g, '[REDACTED_KEY]')
+      .replace(/((?:api[_-]?key|secret|password|token)\s*[:=]\s*['"]?)[a-zA-Z0-9_\-\.]{8,}(['"]?)/gi, '$1[REDACTED]$2');
     return {
       findings: ruleFindings,
       providerInfo: {
         provider: currentProvider,
         model: currentModel,
         isFallback: true,
-        fallbackReason: `AI call failed, fell back to rules-only: ${errorMsg}`,
+        fallbackReason: `AI call failed, fell back to rules-only: ${sanitizedError}`,
       },
       mode: 'rules_only_fallback',
     };

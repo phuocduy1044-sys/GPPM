@@ -21,14 +21,9 @@ export function TestDrawer({ testResult, onRunTest }: TestDrawerProps) {
   const handleRun = async () => {
     setRunning(true)
     try {
-      await fetch('/api/review/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checkCommand: 'npm test' }),
-      }).catch(() => null)
+      await onRunTest?.()
     } finally {
       setRunning(false)
-      onRunTest?.()
     }
   }
 

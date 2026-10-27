@@ -8,10 +8,13 @@ const KEY = 'viecodie-token'
 function readToken(): string | null {
   const mHash = location.hash.match(/token=([\w-]+)/)
   const mSearch = location.search.match(/[?&]token=([\w-]+)/)
-  const val = mHash?.[1] || mSearch?.[1]
+  const mCookie = typeof document !== 'undefined' ? document.cookie.match(/viecodie-session=([\w-]+)/) : null
+  const val = mHash?.[1] || mSearch?.[1] || mCookie?.[1]
   if (val) {
     try { sessionStorage.setItem(KEY, val) } catch { /* private mode — keep it in memory */ }
-    history.replaceState(null, '', location.pathname)
+    if (mHash || mSearch) {
+      history.replaceState(null, '', location.pathname)
+    }
     return val
   }
   try { return sessionStorage.getItem(KEY) } catch { return null }

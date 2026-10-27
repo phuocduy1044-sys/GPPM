@@ -285,7 +285,9 @@ export function runRules(files: ScannedFile[], astResult: AstAnalysisResult): Fi
         const isPlaceholder = /^(?:none|mock|dummy|test|xxx|localhost|TODO|CHANGEME|<.*>|\*+)$/i.test(val);
         if (isSecretName && !isPlaceholder && val.length >= 8) {
           const line = sourceFile!.getLineAndCharacterOfPosition(secretPos).line + 1;
-          const evidence = lines[line - 1]?.trim() || `${secretPropName} = '***'`;
+          const rawLine = lines[line - 1]?.trim() || `${secretPropName} = '***'`;
+          const maskedVal = val.length > 8 ? `${val.slice(0, 3)}...[REDACTED]...${val.slice(-3)}` : '[REDACTED]';
+          const evidence = rawLine.replace(val, maskedVal);
           findings.push({
             id: nextId('sec-secret'),
             ruleId: 'SEC_HARDCODED_SECRET',
@@ -297,7 +299,7 @@ export function runRules(files: ScannedFile[], astResult: AstAnalysisResult): Fi
             endLine: line,
             nodeId: getEnclosingFunctionId(secretPos),
             evidence,
-            explanation: `Thuộc tính hoặc biến '${secretPropName}' chứa giá trị khóa bí mật / mật khẩu thô dạng chuỗi gán trực tiếp trong mã nguồn. Việc lưu trữ secret trong source code đối mặt nguy cơ lộ lọt nghiêm trọng khi chia sẻ mã nguồn.`,
+            explanation: `Thuộc tính hoặc biến '${secretPropName}' chứa giá trị khóa bí mật / mật khẩu thô dạng chuỗi gán trực tiếp tại dòng ${line}. Giá trị bí mật đã được che tự động để tránh rò rỉ. Chủ sở hữu khóa cần lập tức thu hồi (revoke) và thay thế khóa này bằng biến môi trường.`,
             suggestion: `Chuyển sang đọc giá trị từ biến môi trường (ví dụ: process.env.${secretPropName.toUpperCase()}) hoặc giải pháp quản lý Secret Vault.`,
             source: 'rule',
             confidence: 'certain',

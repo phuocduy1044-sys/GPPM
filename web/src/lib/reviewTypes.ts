@@ -69,4 +69,5 @@ export interface ReviewProject {
   findings: Finding[]
   testResult?: TestResult
   fileContents?: Record<string, string>
+  isOutdated?: boolean
 }

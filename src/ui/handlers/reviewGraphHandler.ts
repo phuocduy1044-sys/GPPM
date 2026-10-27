@@ -125,6 +125,9 @@ export async function handleGraphCommand(
       if (curRev !== rep.revision || dirty) isOutdated = true
     } catch { /* not git repository */ }
 
+    rep.isOutdated = isOutdated
+    setCurrentReport(rep)
+
     // 3. Khởi động hoặc tái sử dụng Web Server localhost
     setNotice('Đang khởi động giao diện Code Reviewer by Graph...')
     const { url } = await getOrStartCliWebServer(cwd)
@@ -134,11 +137,13 @@ export async function handleGraphCommand(
       ? '\n> ⚠ **Lưu ý:** Mã nguồn dự án đã có thay đổi so với thời điểm review này. Bạn có thể gõ `/review` để quét lại mã mới nhất.\n'
       : ''
 
+    const cleanDisplayUrl = url.split('#')[0]
+
     report([
       '📊 **Code Reviewer by Graph**',
       '',
       `Đã mở giao diện trực quan cho dự án **${rep.projectName}** (Phiên bản: \`${rep.revision}\`):`,
-      `👉 **[${url}](${url})**`,
+      `👉 **[${cleanDisplayUrl}](${url})**`,
       '',
       `- Đồ thị hiển thị: **${rep.nodes.length} nodes**, **${rep.edges.length} edges**`,
       `- Đã gắn: **${rep.findings.length} vấn đề** vào đúng file/hàm/dòng mã`,

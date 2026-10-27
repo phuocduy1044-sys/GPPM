@@ -37,19 +37,10 @@ export function RightPanel({
     if (!selectedFinding) return
     setApplying(true)
     try {
-      const queryToken = token ? `?token=${encodeURIComponent(token)}` : ''
-      await fetch(`/api/review/apply${queryToken}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-viecodie-token': token ?? '',
-        },
-        body: JSON.stringify({ findingId: selectedFinding.id }),
-      }).catch(() => null)
+      await onApplyPatch?.(selectedFinding.id)
+      setApplied(true)
     } finally {
       setApplying(false)
-      setApplied(true)
-      onApplyPatch?.(selectedFinding.id)
     }
   }
 

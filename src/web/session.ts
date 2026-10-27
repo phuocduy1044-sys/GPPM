@@ -21,7 +21,7 @@ import {
   listSessions, loadSession, deleteSession, toDisplayMessages, type SessionMeta,
 } from '../session/store.js'
 import {
-  loadConfig, setModel, setEffort, setProvider, setModelContexts, providerEntries, resolveProvider,
+  loadConfig, setModel, setEffort, setProvider, setModelContexts, providerEntries, resolveProvider, apiKeyFor,
   type Effort,
 } from '../config.js'
 import { listModels, modelContext, isAvailable, NOT_AVAILABLE } from '../llm/client.js'
@@ -295,7 +295,13 @@ export class WebAgent {
 
   providers() {
     const active = resolveProvider().name
-    return providerEntries().map((p) => ({ name: p.name, kind: p.kind, baseUrl: p.entry.baseUrl, active: p.name === active }))
+    return providerEntries().map((p) => ({
+      name: p.name,
+      kind: p.kind,
+      baseUrl: p.entry.baseUrl,
+      active: p.name === active,
+      hasKey: Boolean(apiKeyFor(p.entry)),
+    }))
   }
 
   private async ensureContext(model: string) {

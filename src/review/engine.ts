@@ -67,6 +67,7 @@ export async function reviewProject(options: ReviewProjectOptions): Promise<Revi
     unresolvedCalls: astResult.unresolvedCalls,
     findings: aiResult.findings,
     fileContents,
+    isOutdated: false,
   };
 
   activeReport = report;
