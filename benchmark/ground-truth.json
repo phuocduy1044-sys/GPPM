@@ -10,8 +10,8 @@
     "cleanCases": 10,
     "distribution": {
       "security": 10,
-      "reliability": 6,
-      "maintainability": 4
+      "bug": 8,
+      "maintainability": 2
     },
     "expectedMetrics": {
       "truePositives": 10,
@@ -29,7 +29,7 @@
       "id": "BM-01",
       "file": "benchmark/cases/sql_injection.js",
       "function": "getUserUnsafe",
-      "line": 8,
+      "line": 9,
       "ruleId": "SEC_SQL_INJECTION",
       "category": "security",
       "is_vulnerability": true,
@@ -40,7 +40,7 @@
       "id": "BM-02",
       "file": "benchmark/cases/sql_injection.js",
       "function": "searchOrdersUnsafe",
-      "line": 14,
+      "line": 15,
       "ruleId": "SEC_SQL_INJECTION",
       "category": "security",
       "is_vulnerability": true,
@@ -73,9 +73,9 @@
       "id": "BM-05",
       "file": "benchmark/cases/null_dereference.js",
       "function": "getUserPassword",
-      "line": 8,
-      "ruleId": "BUG_NULL_DEREFERENCE",
-      "category": "reliability",
+      "line": 9,
+      "ruleId": "BUG_POTENTIAL_NULL_DEREFERENCE",
+      "category": "bug",
       "is_vulnerability": true,
       "expectedSeverity": "high",
       "description": "Truy cập thuộc tính lồng nhau không kiểm tra null/undefined"
@@ -84,9 +84,9 @@
       "id": "BM-06",
       "file": "benchmark/cases/null_dereference.js",
       "function": "getFirstCustomerCity",
-      "line": 14,
-      "ruleId": "BUG_NULL_DEREFERENCE",
-      "category": "reliability",
+      "line": 15,
+      "ruleId": "BUG_POTENTIAL_NULL_DEREFERENCE",
+      "category": "bug",
       "is_vulnerability": true,
       "expectedSeverity": "high",
       "description": "Truy cập phần tử mảng có thể rỗng mà không kiểm tra độ dài"
@@ -97,7 +97,7 @@
       "function": "getUserCitySafe",
       "line": 20,
       "ruleId": null,
-      "category": "reliability",
+      "category": "bug",
       "is_vulnerability": false,
       "expectedSeverity": null,
       "description": "Truy cập an toàn với Optional Chaining (?.) và nullish coalescing (??)"
@@ -108,7 +108,7 @@
       "function": "validateRecordGuard",
       "line": 25,
       "ruleId": null,
-      "category": "reliability",
+      "category": "bug",
       "is_vulnerability": false,
       "expectedSeverity": null,
       "description": "Truy cập an toàn thông qua Guard Clauses kiểm tra kiểu dữ liệu"
@@ -151,10 +151,10 @@
       "file": "benchmark/cases/loose_equality.js",
       "function": "checkAdminRole",
       "line": 8,
-      "ruleId": "MAINT_LOOSE_EQUALITY",
-      "category": "maintainability",
+      "ruleId": "BUG_LOOSE_EQUALITY",
+      "category": "bug",
       "is_vulnerability": true,
-      "expectedSeverity": "low",
+      "expectedSeverity": "medium",
       "description": "So sánh lỏng == dẫn đến ép kiểu ngoài dự kiến (type coercion)"
     },
     {
@@ -162,10 +162,10 @@
       "file": "benchmark/cases/loose_equality.js",
       "function": "isSessionActive",
       "line": 16,
-      "ruleId": "MAINT_LOOSE_EQUALITY",
-      "category": "maintainability",
+      "ruleId": "BUG_LOOSE_EQUALITY",
+      "category": "bug",
       "is_vulnerability": true,
-      "expectedSeverity": "low",
+      "expectedSeverity": "medium",
       "description": "So sánh bất đẳng lỏng != dễ phát sinh lỗi logic"
     },
     {
@@ -183,7 +183,7 @@
       "id": "BM-15",
       "file": "benchmark/cases/redos_prototype.js",
       "function": "mergeUserProfile",
-      "line": 8,
+      "line": 10,
       "ruleId": "SEC_PROTOTYPE_POLLUTION",
       "category": "security",
       "is_vulnerability": true,
@@ -218,7 +218,7 @@
       "function": "calculateMovingAverage",
       "line": 8,
       "ruleId": null,
-      "category": "reliability",
+      "category": "bug",
       "is_vulnerability": false,
       "expectedSeverity": null,
       "description": "Hàm tính toán số học chuẩn mẫu, kiểm tra kiểu dữ liệu và cận mảng"
@@ -229,7 +229,7 @@
       "function": "formatCurrencyVND",
       "line": 42,
       "ruleId": null,
-      "category": "reliability",
+      "category": "bug",
       "is_vulnerability": false,
       "expectedSeverity": null,
       "description": "Hàm định dạng tiền tệ an toàn sử dụng Intl API chuẩn"

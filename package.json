@@ -21,6 +21,7 @@
     "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "benchmark": "tsx scripts/run-benchmark.ts",
     "dev": "tsx watch src/cli.tsx",
     "build": "tsup && vite build --config web/vite.config.ts",
     "dev:web": "vite --config web/vite.config.ts",
